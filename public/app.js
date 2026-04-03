@@ -29,6 +29,35 @@ const $ = (id) => document.getElementById(id);
 const fmt = (n) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB` : `${(n / 1024 ** 2).toFixed(2)} MB`);
 const initials = (email) => (email || 'U').split('@')[0].slice(0, 2).toUpperCase();
 
+const fileTypeColor = {
+  folder: '#f7c948',
+  pdf: '#ff5a62',
+  doc: '#7b6ef6',
+  file: '#7b6ef6',
+  image: '#3ecfcf',
+  video: '#7b6ef6',
+  sheet: '#3ecfcf',
+  zip: '#888888',
+};
+
+const iconSVG = {
+  pdf: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="{c}"/><path d="M5 5h6M5 7.5h6M5 10h4" stroke="{c}" stroke-linecap="round"/></svg>`,
+  doc: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="{c}"/><path d="M5 5h6M5 7.5h6M5 10h4" stroke="{c}" stroke-linecap="round"/></svg>`,
+  sheet: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="2" y="2" width="12" height="12" rx="1.5" stroke="{c}"/><path d="M2 6h12M6 2v12" stroke="{c}"/></svg>`,
+  image: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="2" y="2" width="12" height="12" rx="2" stroke="{c}"/><circle cx="6" cy="6" r="1.5" stroke="{c}"/><path d="M2 11l3-3 2 2 2-2 4 4" stroke="{c}" stroke-linecap="round"/></svg>`,
+  video: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="2" y="3" width="10" height="10" rx="1.5" stroke="{c}"/><path d="M12 6l2.5-2v8L12 10" stroke="{c}" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  folder: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><path d="M1 5a2 2 0 012-2h2.5l2 2H13a2 2 0 012 2v5a2 2 0 01-2 2H3a2 2 0 01-2-2V5z" stroke="{c}"/></svg>`,
+  zip: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="{c}"/><path d="M7 1v6M9 1v6M6 7h4v2H6z" stroke="{c}" stroke-linecap="round"/></svg>`,
+};
+
+function iconFor(item, size = 28) {
+  const type = item.type === 'folder' ? 'folder' : (item.name.split('.').pop() || item.type || 'doc').toLowerCase();
+  const normalized = (type === 'jpg' || type === 'jpeg' || type === 'png' || type === 'gif') ? 'image' : (type === 'mp4' ? 'video' : (type === 'xlsx' || type === 'csv' ? 'sheet' : type));
+  const key = iconSVG[normalized] ? normalized : (item.type === 'folder' ? 'folder' : 'doc');
+  const color = fileTypeColor[key] || '#7b6ef6';
+  return iconSVG[key].replace(/{c}/g, color).replace(/28px/g, `${size}px`);
+}
+
 function toast(msg) {
   const t = $('toast');
   t.textContent = msg;
@@ -368,7 +397,7 @@ function renderGrid() {
       const label = basename(item.name);
       return `
         <article class="file-card${selected ? ' selected' : ''}" data-id="${item.id}">
-          <div class="fc-thumb"><span class="file-icon">${item.type === 'folder' ? '📁' : '📄'}</span></div>
+          <div class="fc-thumb">${iconFor(item)}</div>
           <div class="fc-name">${label}</div>
           <div class="fc-meta">${item.type === 'folder' ? '--' : fmt(item.size || 0)} · ${item.modified || '-'}</div>
         </article>`;
@@ -380,7 +409,7 @@ function renderGrid() {
       const owner = state.section === 'shared' ? (item.owner || 'shared') : 'you';
       return `
         <article class="list-row${selected ? ' selected' : ''}" data-id="${item.id}">
-          <div class="lr-name"><input type="checkbox" class="row-check" ${selected ? 'checked' : ''}><span class="file-icon">${item.type === 'folder' ? '📁' : '📄'}</span> <strong>${basename(item.name)}</strong></div>
+          <div class="lr-name"><input type="checkbox" class="row-check" ${selected ? 'checked' : ''}><span class="mini-icon">${iconFor(item, 15)}</span><strong>${basename(item.name)}</strong></div>
           <div class="lr-size">${owner}</div>
           <div class="lr-date">${item.modified || '-'}</div>
           <div class="lr-type">${item.type === 'folder' ? '--' : fmt(item.size || 0)}</div>

@@ -86,7 +86,6 @@
           <div class="storage-bar"><div id="uploadProgressBar" class="storage-fill"></div></div>
           <div id="uploadProgressText" class="storage-num">0%</div>
         </div>
-      </aside>
 
       <main class="main" id="main">
         <div class="main-header">
@@ -96,14 +95,24 @@
             <button class="vt-btn" id="list-btn"><svg viewBox="0 0 16 16"><path d="M4 4h10M4 8h10M4 12h10M2 4h.01M2 8h.01M2 12h.01" stroke-linecap="round"/></svg></button>
           </div>
         </div>
+      </aside>
 
+        <div class="section-title">Quick Access</div>
         <div class="quick-row">
-          <button id="shareBtn" class="quick-card" disabled><div><div class="qc-name">Share</div><div class="qc-meta">Selected item</div></div></button>
-          <button id="downloadBtn" class="quick-card" disabled><div><div class="qc-name">Download</div><div class="qc-meta">Selected file</div></div></button>
-          <button id="trashBtn" class="quick-card" disabled><div><div class="qc-name">Move to Trash</div><div class="qc-meta">Selected items</div></div></button>
-          <button id="deleteForeverBtn" class="quick-card danger" disabled><div><div class="qc-name">Delete Forever</div><div class="qc-meta">Trash only</div></div></button>
-          <button id="clearBinBtn" class="quick-card danger hidden"><div><div class="qc-name">Clear Bin</div><div class="qc-meta">Delete all trash</div></div></button>
-          <button id="folderUpBtn" class="quick-card"><div><div class="qc-name">Up</div><div class="qc-meta">Go to parent</div></div></button>
+          <div class="quick-card"><div><div class="qc-name">Q4 Report.pdf</div><div class="qc-meta">Today, 9:12 AM</div></div></div>
+          <div class="quick-card"><div><div class="qc-name">Brand Guide</div><div class="qc-meta">Yesterday</div></div></div>
+          <div class="quick-card"><div><div class="qc-name">Design Assets</div><div class="qc-meta">3 days ago</div></div></div>
+          <div class="quick-card"><div><div class="qc-name">Sprint Tasks</div><div class="qc-meta">Mon, 2:40 PM</div></div></div>
+          <div class="quick-card"><div><div class="qc-name">Meeting Notes</div><div class="qc-meta">Last week</div></div></div>
+        </div>
+
+        <div class="action-row">
+          <button id="folderUpBtn" class="btn">Up</button>
+          <button id="shareBtn" class="btn" disabled>Share</button>
+          <button id="downloadBtn" class="btn" disabled>Download</button>
+          <button id="trashBtn" class="btn" disabled>Move to Trash</button>
+          <button id="deleteForeverBtn" class="btn danger" disabled>Delete Forever</button>
+          <button id="clearBinBtn" class="btn danger hidden">Clear Bin</button>
         </div>
 
         <div class="section-title">Files · <span id="selectionCount">No selection</span></div>

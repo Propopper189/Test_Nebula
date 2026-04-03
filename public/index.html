@@ -6,7 +6,7 @@
   <title>NebulaCloud Drive</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=Syne:wght@400;500;600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -32,80 +32,90 @@
     </div>
   </section>
 
-  <section id="drivePage" class="page hidden drive-shell">
-    <header class="topbar glass">
-      <div class="brand">
-        <div class="brand-mark">
-          <svg viewBox="0 0 72 72" fill="none" aria-hidden="true">
-            <path d="M21 54h30a13 13 0 1 0-2.6-25.8A16 16 0 0 0 18 33.2 10.5 10.5 0 0 0 21 54Z" stroke="url(#b1)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M36 43V24m0 0-8 8m8-8 8 8" stroke="url(#b2)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-            <defs>
-              <linearGradient id="b1" x1="10" y1="10" x2="66" y2="62"><stop stop-color="#3b82f6"/><stop offset="1" stop-color="#22d3ee"/></linearGradient>
-              <linearGradient id="b2" x1="20" y1="20" x2="52" y2="52"><stop stop-color="#2563eb"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
-            </defs>
-          </svg>
+  <section id="drivePage" class="page hidden drive-page">
+    <div class="orb orb1"></div>
+    <div class="orb orb2"></div>
+
+    <div class="shell">
+      <div class="topbar">
+        <div class="logo">
+          <div class="logo-icon">
+            <svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="3"/><path d="M7 1v2M7 11v2M1 7h2M11 7h2" stroke-linecap="round"/></svg>
+          </div>
+          Nebula Drive
         </div>
-        <div class="brand-copy">
-          <span class="brand-title">DATA CLOUD</span>
-          <small>Secure. Simple. Storage.</small>
+        <div class="search-bar">
+          <svg class="search-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#888" stroke-width="2"><circle cx="7" cy="7" r="5"/><path d="M12 12l2.5 2.5" stroke-linecap="round"/></svg>
+          <input id="searchInput" type="text" placeholder="Search files, folders, people…">
+        </div>
+        <div class="topbar-actions">
+          <button id="newQuickBtn" class="icon-btn" title="Quick upload"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" stroke-linecap="round"/></svg></button>
+          <span id="currentUser" class="user-pill"></span>
+          <div class="account-wrap">
+            <button id="accountMenuBtn" class="avatar" title="Account"><span id="accountAvatar">U</span></button>
+            <div id="accountMenu" class="account-menu hidden glass">
+              <button id="openAccountBtn">Account</button>
+              <button id="signOutBtn">Sign Out</button>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="search-wrap"><input id="searchInput" placeholder="Search files and folders" /></div>
-      <span id="currentUser" class="user-pill"></span>
-      <div class="account-wrap">
-        <button id="accountMenuBtn" class="avatar" title="Account"><span id="accountAvatar">U</span></button>
-        <div id="accountMenu" class="account-menu hidden glass">
-          <button id="openAccountBtn">Account</button>
-          <button id="signOutBtn">Sign Out</button>
+
+      <div class="sidebar">
+        <button id="uploadFileBtn" class="new-btn">Upload Files</button>
+        <button data-section="drive" class="nav-item side-btn active">My Drive</button>
+        <button data-section="shared" class="nav-item side-btn">Shared with me</button>
+        <button data-section="trash" class="nav-item side-btn">Trash</button>
+
+        <div class="storage-section">
+          <div class="storage-label">Storage used</div>
+          <div class="storage-bar"><div id="storageBar" class="storage-fill"></div></div>
+          <div id="storageText" class="storage-num">0 MB / 10 GB</div>
+        </div>
+
+        <div id="uploadProgressBox" class="storage-section hidden">
+          <div class="storage-label">Upload progress</div>
+          <div class="storage-bar"><div id="uploadProgressBar" class="storage-fill"></div></div>
+          <div id="uploadProgressText" class="storage-num">0%</div>
         </div>
       </div>
-    </header>
 
-    <main class="app-main">
-      <aside class="left-rail glass">
-        <button id="newQuickBtn" class="new-btn">+ New</button>
-        <button data-section="drive" class="side-btn active">My Drive</button>
-        <button data-section="shared" class="side-btn">Shared with Me</button>
-        <button data-section="trash" class="side-btn">Trash Bin</button>
-        <div class="storage">
-          <div>Storage</div>
-          <strong id="storageText">0 MB / 10 GB</strong>
-          <div class="bar"><div id="storageBar"></div></div>
-        </div>
-      </aside>
-
-      <section class="content glass">
-        <div class="toolbar">
-          <button id="uploadFileBtn" class="btn primary">Upload Files</button>
-          <button id="uploadFolderBtn" class="btn">Upload Folder</button>
-          <button id="newFolderBtn" class="btn">New Folder</button>
-          <button id="shareBtn" class="btn" disabled>Share</button>
-          <button id="downloadBtn" class="btn" disabled>Download</button>
-          <button id="trashBtn" class="btn" disabled>Move to Trash</button>
-          <button id="deleteForeverBtn" class="btn danger" disabled>Delete Permanently</button>
-          <button id="clearBinBtn" class="btn danger hidden">Clear Bin</button>
+      <div class="main" id="main">
+        <div class="main-header">
+          <div class="breadcrumb">
+            <span class="bc-parent">My Drive</span>
+            <span class="bc-sep">/</span>
+            <span id="folderPathLabel" class="bc-current">All Files</span>
+          </div>
+          <div class="view-toggle">
+            <button class="vt-btn active" id="grid-btn" title="Grid View">
+              <svg viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+            </button>
+            <button class="vt-btn" id="list-btn" title="List View">
+              <svg viewBox="0 0 16 16"><path d="M4 4h10M4 8h10M4 12h10M2 4h.01M2 8h.01M2 12h.01" stroke-linecap="round"/></svg>
+            </button>
+          </div>
         </div>
 
-        <div class="suggested">
-          <h3>Cloud Workspace</h3>
-          <div class="selection-meta" id="selectionCount">No selection</div>
+        <div class="quick-row">
+          <button id="uploadFolderBtn" class="quick-card"><div><div class="qc-name">Upload Folder</div><div class="qc-meta">Add a whole directory</div></div></button>
+          <button id="newFolderBtn" class="quick-card"><div><div class="qc-name">New Folder</div><div class="qc-meta">Create workspace folder</div></div></button>
+          <button id="folderUpBtn" class="quick-card"><div><div class="qc-name">Go Up</div><div class="qc-meta">Parent folder</div></div></button>
+          <button id="shareBtn" class="quick-card" disabled><div><div class="qc-name">Share</div><div class="qc-meta">Selected item</div></div></button>
+          <button id="downloadBtn" class="quick-card" disabled><div><div class="qc-name">Download</div><div class="qc-meta">Selected file</div></div></button>
+          <button id="trashBtn" class="quick-card" disabled><div><div class="qc-name">Move to Trash</div><div class="qc-meta">Selected items</div></div></button>
+          <button id="deleteForeverBtn" class="quick-card danger" disabled><div><div class="qc-name">Delete Forever</div><div class="qc-meta">Trash only</div></div></button>
+          <button id="clearBinBtn" class="quick-card danger hidden"><div><div class="qc-name">Clear Bin</div><div class="qc-meta">Remove all trash</div></div></button>
         </div>
 
-        <div class="pathbar">
-          <button id="folderUpBtn" class="btn">Up</button>
-          <span id="folderPathLabel">My Drive</span>
-        </div>
+        <div class="section-title">Files · <span id="selectionCount">No selection</span></div>
 
         <input id="fileInput" type="file" multiple hidden>
         <input id="folderInput" type="file" webkitdirectory directory multiple hidden>
 
-        <div class="table-head">
-          <div>Name</div><div>Owner</div><div>Last modified</div><div>File size</div>
-        </div>
-
         <div id="empty" class="empty">No items in this section.</div>
-        <div id="grid" class="grid"></div>
-      </section>
+        <div id="grid"></div>
+      </div>
 
       <section class="details glass">
         <h3>Details</h3>
@@ -118,7 +128,7 @@
           <p>Shared with: <span id="dShared"></span></p>
         </div>
       </section>
-    </main>
+    </div>
   </section>
 
   <div id="shareModal" class="modal hidden">

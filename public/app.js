@@ -204,6 +204,16 @@ function localApi(path, options = {}) {
     return item;
   }
 
+  if (path.startsWith('/files/') && path.endsWith('/star') && method === 'PATCH') {
+    const id = path.split('/')[2];
+    const item = files.find((f) => f.id === id);
+    if (!item) throw new Error('File not found.');
+    if (item.trashedAt) throw new Error('Cannot star items in trash.');
+    item.starred = typeof body.starred === 'boolean' ? body.starred : !item.starred;
+    saveFiles(files);
+    return item;
+  }
+
   if (path === '/files/delete-batch' && method === 'DELETE') {
     const ids = new Set(body.ids || []);
     const kept = files.filter((f) => !(ids.has(f.id) && f.trashedAt));
@@ -357,6 +367,7 @@ function renderDetails() {
   $('shareBtn').disabled = !(items.length === 1 && !['trash','shared'].includes(state.section));
   $('downloadBtn').disabled = !(items.length === 1 && single?.type !== 'folder' && state.section !== 'trash');
   $('trashBtn').disabled = !(items.length > 0 && state.section !== 'trash');
+  $('starBtn').disabled = !(items.length > 0 && !['shared', 'trash'].includes(state.section));
   $('deleteForeverBtn').disabled = !(items.length > 0 && state.section === 'trash');
   $('clearBinBtn').classList.toggle('hidden', state.section !== 'trash');
 
@@ -599,6 +610,15 @@ async function moveToTrash() {
   toast('Moved selected items to Trash.');
 }
 
+async function toggleStarSelected() {
+  const items = selectedItems();
+  if (!items.length) return;
+  const shouldStar = items.some((item) => !item.starred);
+  await Promise.all(items.map((item) => api(`/files/${item.id}/star`, { method: 'PATCH', body: JSON.stringify({ starred: shouldStar }) })));
+  await loadDrive();
+  toast(shouldStar ? 'Starred.' : 'Unstarred.');
+}
+
 async function deleteForever() {
   if (!state.selectedIds.size || state.section !== 'trash') return;
   await api('/files/delete-batch', { method: 'DELETE', body: JSON.stringify({ ids: [...state.selectedIds] }) });
@@ -711,6 +731,7 @@ function wire() {
   $('shareBtn').onclick = openShare;
   $('downloadBtn').onclick = downloadSelected;
   $('trashBtn').onclick = moveToTrash;
+  $('starBtn').onclick = toggleStarSelected;
   $('deleteForeverBtn').onclick = deleteForever;
   $('clearBinBtn').onclick = clearBin;
 
@@ -742,7 +763,7 @@ function wire() {
       document.querySelectorAll('.side-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       state.section = btn.dataset.section;
-      state.currentFolder = '';
+      state.currentFolder = btn.dataset.folder || '';
       state.selectedIds = new Set();
       renderGrid();
       renderDetails();

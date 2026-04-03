@@ -254,6 +254,18 @@ app.patch('/api/files/:id/share', auth, (req, res) => {
   res.json(file);
 });
 
+app.patch('/api/files/:id/star', auth, (req, res) => {
+  const files = ensureUserFiles(req.userEmail);
+  const file = files.find((f) => f.id === req.params.id);
+  if (!file) return res.status(404).json({ message: 'File not found.' });
+  if (file.trashedAt) return res.status(400).json({ message: 'Cannot star items in trash.' });
+
+  const next = typeof req.body?.starred === 'boolean' ? req.body.starred : !file.starred;
+  file.starred = next;
+  saveDb();
+  res.json(file);
+});
+
 app.delete('/api/files/delete-batch', auth, (req, res) => {
   const ids = new Set(Array.isArray(req.body?.ids) ? req.body.ids : []);
   if (!ids.size) return res.status(400).json({ message: 'ids are required.' });

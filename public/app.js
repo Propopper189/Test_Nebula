@@ -13,6 +13,8 @@ const state = {
   section: 'drive',
   currentFolder: '',
   selectedIds: new Set(),
+  view: 'grid',
+  uploadProgress: { active: false, percent: 0, uploadedBytes: 0, totalBytes: 0, uploadedFiles: 0, totalFiles: 0 },
 };
 
 const localBlobMap = new Map();
@@ -26,6 +28,35 @@ const localKey = {
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB` : `${(n / 1024 ** 2).toFixed(2)} MB`);
 const initials = (email) => (email || 'U').split('@')[0].slice(0, 2).toUpperCase();
+
+const fileTypeColor = {
+  folder: '#f7c948',
+  pdf: '#ff5a62',
+  doc: '#7b6ef6',
+  file: '#7b6ef6',
+  image: '#3ecfcf',
+  video: '#7b6ef6',
+  sheet: '#3ecfcf',
+  zip: '#888888',
+};
+
+const iconSVG = {
+  pdf: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="{c}"/><path d="M5 5h6M5 7.5h6M5 10h4" stroke="{c}" stroke-linecap="round"/></svg>`,
+  doc: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="{c}"/><path d="M5 5h6M5 7.5h6M5 10h4" stroke="{c}" stroke-linecap="round"/></svg>`,
+  sheet: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="2" y="2" width="12" height="12" rx="1.5" stroke="{c}"/><path d="M2 6h12M6 2v12" stroke="{c}"/></svg>`,
+  image: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="2" y="2" width="12" height="12" rx="2" stroke="{c}"/><circle cx="6" cy="6" r="1.5" stroke="{c}"/><path d="M2 11l3-3 2 2 2-2 4 4" stroke="{c}" stroke-linecap="round"/></svg>`,
+  video: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="2" y="3" width="10" height="10" rx="1.5" stroke="{c}"/><path d="M12 6l2.5-2v8L12 10" stroke="{c}" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  folder: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><path d="M1 5a2 2 0 012-2h2.5l2 2H13a2 2 0 012 2v5a2 2 0 01-2 2H3a2 2 0 01-2-2V5z" stroke="{c}"/></svg>`,
+  zip: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="{c}"/><path d="M7 1v6M9 1v6M6 7h4v2H6z" stroke="{c}" stroke-linecap="round"/></svg>`,
+};
+
+function iconFor(item, size = 28) {
+  const type = item.type === 'folder' ? 'folder' : (item.name.split('.').pop() || item.type || 'doc').toLowerCase();
+  const normalized = (type === 'jpg' || type === 'jpeg' || type === 'png' || type === 'gif') ? 'image' : (type === 'mp4' ? 'video' : (type === 'xlsx' || type === 'csv' ? 'sheet' : type));
+  const key = iconSVG[normalized] ? normalized : (item.type === 'folder' ? 'folder' : 'doc');
+  const color = fileTypeColor[key] || '#7b6ef6';
+  return iconSVG[key].replace(/{c}/g, color).replace(/28px/g, `${size}px`);
+}
 
 function toast(msg) {
   const t = $('toast');
@@ -343,36 +374,65 @@ function renderStorage() {
   $('accountStorage').textContent = `${fmt(used)} of ${fmt(LIMIT)} used`;
 }
 
+function renderUploadProgress() {
+  const box = $('uploadProgressBox');
+  const bar = $('uploadProgressBar');
+  const text = $('uploadProgressText');
+  const p = state.uploadProgress;
+  box.classList.toggle('hidden', !p.active);
+  if (!p.active) return;
+  bar.style.width = `${p.percent}%`;
+  text.textContent = `${p.percent}% · ${fmt(p.uploadedBytes)} / ${fmt(p.totalBytes)} · ${p.uploadedFiles}/${p.totalFiles} files`;
+}
+
 function renderGrid() {
   const list = currentList();
   const grid = $('grid');
-  grid.innerHTML = '';
   $('empty').classList.toggle('hidden', list.length > 0);
 
-  list.forEach((item) => {
-    const row = document.createElement('article');
-    row.className = `card${state.selectedIds.has(item.id) ? ' active' : ''}`;
-    const owner = state.section === 'shared' ? (item.owner || 'shared') : 'you';
-    row.innerHTML = `
-      <div class="file-name-cell">
-        <input type="checkbox" class="row-check" ${state.selectedIds.has(item.id) ? 'checked' : ''}>
-        <span class="file-icon">${item.type === 'folder' ? '📁' : '📄'}</span>
-        <strong>${basename(item.name)}</strong>
-      </div>
-      <div>${owner}</div>
-      <div>${item.modified || '-'}</div>
-      <div>${item.type === 'folder' ? '--' : fmt(item.size || 0)}</div>
-    `;
+  if (state.view === 'grid') {
+    grid.className = 'files-grid';
+    grid.innerHTML = list.map((item) => {
+      const selected = state.selectedIds.has(item.id);
+      const label = basename(item.name);
+      return `
+        <article class="file-card${selected ? ' selected' : ''}" data-id="${item.id}">
+          <div class="fc-thumb">${iconFor(item)}</div>
+          <div class="fc-name">${label}</div>
+          <div class="fc-meta">${item.type === 'folder' ? '--' : fmt(item.size || 0)} · ${item.modified || '-'}</div>
+        </article>`;
+    }).join('');
+  } else {
+    grid.className = 'files-list';
+    grid.innerHTML = list.map((item) => {
+      const selected = state.selectedIds.has(item.id);
+      const owner = state.section === 'shared' ? (item.owner || 'shared') : 'you';
+      return `
+        <article class="list-row${selected ? ' selected' : ''}" data-id="${item.id}">
+          <div class="lr-name"><input type="checkbox" class="row-check" ${selected ? 'checked' : ''}><span class="mini-icon">${iconFor(item, 15)}</span><strong>${basename(item.name)}</strong></div>
+          <div class="lr-size">${owner}</div>
+          <div class="lr-date">${item.modified || '-'}</div>
+          <div class="lr-type">${item.type === 'folder' ? '--' : fmt(item.size || 0)}</div>
+        </article>`;
+    }).join('');
+  }
 
-    row.querySelector('.row-check').onclick = (e) => {
-      e.stopPropagation();
-      toggleSelect(item.id, e.target.checked);
-      renderGrid();
-      renderDetails();
-    };
+  grid.querySelectorAll('[data-id]').forEach((row) => {
+    const id = row.getAttribute('data-id');
+    const item = list.find((f) => f.id === id);
+    const checkbox = row.querySelector('.row-check');
+
+    if (checkbox) {
+      checkbox.onclick = (e) => {
+        e.stopPropagation();
+        toggleSelect(id, e.target.checked);
+        renderGrid();
+        renderDetails();
+      };
+    }
 
     row.ondblclick = () => {
-      if (state.section === 'drive' && item.type === 'folder') {
+      if (state.section === 'drive' && item?.type === 'folder') {
         state.currentFolder = normalizePath(item.name);
         state.selectedIds = new Set();
         renderGrid();
@@ -382,21 +442,23 @@ function renderGrid() {
 
     row.onclick = (e) => {
       if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        const alreadyOnly = state.selectedIds.size === 1 && state.selectedIds.has(item.id);
-        state.selectedIds = alreadyOnly ? new Set() : new Set([item.id]);
+        const alreadyOnly = state.selectedIds.size === 1 && state.selectedIds.has(id);
+        state.selectedIds = alreadyOnly ? new Set() : new Set([id]);
       } else {
-        toggleSelect(item.id);
+        toggleSelect(id);
       }
       renderGrid();
       renderDetails();
     };
-    grid.appendChild(row);
   });
 
-  $('folderPathLabel').textContent = state.currentFolder ? `My Drive / ${state.currentFolder}` : 'My Drive';
+  $('grid-btn').classList.toggle('active', state.view === 'grid');
+  $('list-btn').classList.toggle('active', state.view === 'list');
+  $('folderPathLabel').textContent = state.currentFolder || 'All Files';
   $('folderUpBtn').disabled = !(state.section === 'drive' && state.currentFolder);
 
   renderStorage();
+  renderUploadProgress();
   const readonly = state.section === 'shared';
   $('uploadFileBtn').disabled = readonly;
   $('uploadFolderBtn').disabled = readonly;
@@ -415,6 +477,33 @@ async function loadDrive() {
   $('drivePage').classList.remove('hidden');
   renderGrid();
   renderDetails();
+}
+
+function uploadSingleFileWithProgress(file, parentPath, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', apiBase('/upload'));
+    if (state.token) xhr.setRequestHeader('Authorization', `Bearer ${state.token}`);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else {
+        try {
+          const body = JSON.parse(xhr.responseText || '{}');
+          reject(new Error(body.message || 'Upload failed'));
+        } catch {
+          reject(new Error('Upload failed'));
+        }
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    const form = new FormData();
+    form.append('file', file, file.name);
+    form.append('parentPath', parentPath);
+    xhr.send(form);
+  });
 }
 
 async function uploadRecords(fileList, isFolder = false) {
@@ -437,6 +526,10 @@ async function uploadRecords(fileList, isFolder = false) {
     }
   }
 
+  const totalBytes = files.reduce((sum, file) => sum + (file.size || 0), 0);
+  state.uploadProgress = { active: true, percent: 0, uploadedBytes: 0, totalBytes, uploadedFiles: 0, totalFiles: files.length };
+  renderUploadProgress();
+
   let uploaded = 0;
   for (const file of files) {
     if (used + file.size > LIMIT) {
@@ -447,23 +540,37 @@ async function uploadRecords(fileList, isFolder = false) {
     const relParent = isFolder ? normalizePath((file.webkitRelativePath || '').split('/').slice(0, -1).join('/')) : '';
     const parentPath = normalizePath(state.currentFolder ? `${state.currentFolder}/${relParent}` : relParent || state.currentFolder);
 
+    const alreadyUploaded = state.uploadProgress.uploadedBytes;
     if (IS_FILE_MODE) {
       const created = await api('/files', {
         method: 'POST',
         body: JSON.stringify({ name: file.name, type: 'file', size: file.size, parentPath }),
       });
       localBlobMap.set(created.id, file);
+      state.uploadProgress.uploadedBytes = alreadyUploaded + file.size;
     } else {
-      const form = new FormData();
-      form.append('file', file, file.name);
-      form.append('parentPath', parentPath);
-      await api('/upload', { method: 'POST', body: form });
+      await uploadSingleFileWithProgress(file, parentPath, (loadedBytes) => {
+        state.uploadProgress.uploadedBytes = alreadyUploaded + loadedBytes;
+        state.uploadProgress.percent = totalBytes ? Math.min(100, Math.round((state.uploadProgress.uploadedBytes / totalBytes) * 100)) : 100;
+        renderUploadProgress();
+      });
+      state.uploadProgress.uploadedBytes = alreadyUploaded + file.size;
     }
 
+    state.uploadProgress.uploadedFiles += 1;
+    state.uploadProgress.percent = totalBytes ? Math.min(100, Math.round((state.uploadProgress.uploadedBytes / totalBytes) * 100)) : 100;
+    renderUploadProgress();
     used += file.size;
     uploaded += 1;
   }
+
   await loadDrive();
+  state.uploadProgress.percent = 100;
+  renderUploadProgress();
+  setTimeout(() => {
+    state.uploadProgress.active = false;
+    renderUploadProgress();
+  }, 1200);
   toast(uploaded ? `Uploaded ${uploaded} item(s).` : 'Nothing uploaded.');
 }
 
@@ -581,6 +688,8 @@ function wire() {
   $('authSubmit').onclick = submitAuth;
   $('signOutBtn').onclick = signOut;
   $('searchInput').oninput = renderGrid;
+  $('grid-btn').onclick = () => { state.view = 'grid'; renderGrid(); };
+  $('list-btn').onclick = () => { state.view = 'list'; renderGrid(); };
 
   $('uploadFileBtn').onclick = () => $('fileInput').click();
   $('newQuickBtn').onclick = () => $('fileInput').click();

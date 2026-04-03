@@ -9,6 +9,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
   <link id="mainStylesheet" rel="stylesheet" href="/styles.css" />
   <script>if(location.protocol==='file:'){document.getElementById('mainStylesheet').href='public/styles.css';}</script>
+  <style>
+    .shell{display:flex !important;flex-direction:column !important;height:100vh !important;}
+    .workspace{display:flex !important;flex:1 !important;min-height:0 !important;}
+    .sidebar{width:220px !important;flex-shrink:0 !important;overflow-x:hidden !important;}
+    .main{flex:1 !important;min-width:0 !important;overflow-y:auto !important;}
+  </style>
 </head>
 <body>
   <section id="authPage" class="page auth-page">

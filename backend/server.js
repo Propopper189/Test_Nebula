@@ -8,7 +8,7 @@ const multer = require('multer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const STORAGE_LIMIT_BYTES = 10 * 1024 * 1024 * 1024;
-const RETENTION_MS = 15 * 24 * 60 * 60 * 1000;
+const AUTO_DELETE_MS = 3 * 24 * 60 * 60 * 1000;
 const uploadDir = path.join(__dirname, '..', 'uploads');
 const dbPath = path.join(__dirname, 'data.json');
 fs.mkdirSync(uploadDir, { recursive: true });
@@ -49,6 +49,7 @@ function ensureUserFiles(email) {
 }
 
 function getUsedBytes(email) {
+  purgeExpired(email);
   return ensureUserFiles(email)
     .filter((item) => !item.trashedAt)
     .reduce((acc, item) => acc + (item.size || 0), 0);
@@ -62,13 +63,13 @@ function removeBinary(fileId) {
   delete db.blobs[fileId];
 }
 
-function purgeTrash(email) {
+function purgeExpired(email) {
   const now = Date.now();
   const files = ensureUserFiles(email);
   const kept = [];
   let changed = false;
   for (const item of files) {
-    if (item.trashedAt && now - new Date(item.trashedAt).getTime() > RETENTION_MS) {
+    if (item.createdAt && now - new Date(item.createdAt).getTime() > AUTO_DELETE_MS) {
       removeBinary(item.id);
       changed = true;
       continue;
@@ -151,13 +152,15 @@ app.delete('/api/account', auth, (req, res) => {
 });
 
 app.get('/api/files', auth, (req, res) => {
-  const files = purgeTrash(req.userEmail);
+  const files = purgeExpired(req.userEmail);
   res.json({ files });
 });
 
 app.get('/api/files/shared', auth, (req, res) => {
   const shared = [];
-  for (const [owner, records] of Object.entries(db.filesByUser)) {
+  purgeExpired(req.userEmail);
+  for (const [owner] of Object.entries(db.filesByUser)) {
+    const records = purgeExpired(owner);
     if (owner === req.userEmail) continue;
     records.forEach((item) => {
       if (!item.trashedAt && (item.sharedWith || []).includes(req.userEmail)) {
@@ -185,6 +188,8 @@ app.post('/api/files', auth, (req, res) => {
     modified: new Date().toISOString().slice(0, 10),
     sharedWith: [],
     trashedAt: null,
+    createdAt: new Date().toISOString(),
+    starred: false,
   };
   ensureUserFiles(req.userEmail).unshift(item);
   saveDb();
@@ -208,6 +213,8 @@ app.post('/api/upload', auth, upload.single('file'), (req, res) => {
     modified: new Date().toISOString().slice(0, 10),
     sharedWith: [],
     trashedAt: null,
+    createdAt: new Date().toISOString(),
+    starred: false,
     mimeType: req.file.mimetype || 'application/octet-stream',
   };
 
@@ -274,11 +281,13 @@ app.delete('/api/files/trash/clear', auth, (req, res) => {
 });
 
 app.get('/api/files/:id/download', auth, (req, res) => {
+  purgeExpired(req.userEmail);
   let file = ensureUserFiles(req.userEmail).find((f) => f.id === req.params.id);
   if (!file) {
     for (const [owner, records] of Object.entries(db.filesByUser)) {
       if (owner === req.userEmail) continue;
-      const shared = records.find((f) => f.id === req.params.id && !f.trashedAt && (f.sharedWith || []).includes(req.userEmail));
+      const ownerRecords = purgeExpired(owner);
+      const shared = ownerRecords.find((f) => f.id === req.params.id && !f.trashedAt && (f.sharedWith || []).includes(req.userEmail));
       if (shared) {
         file = shared;
         break;

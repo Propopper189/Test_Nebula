@@ -1,5 +1,6 @@
 const API = '/api';
 const LIMIT = 10 * 1024 * 1024 * 1024;
+const AUTO_DELETE_MS = 3 * 24 * 60 * 60 * 1000;
 const IS_FILE_MODE = location.protocol === 'file:';
 const DEV_API_ORIGIN = localStorage.getItem('nebula_api_origin') || 'http://localhost:3000';
 const IS_LOCALHOST = ['localhost', '127.0.0.1'].includes(location.hostname);
@@ -150,7 +151,7 @@ function localApi(path, options = {}) {
 
   if (path === '/files' && method === 'GET') {
     const now = Date.now();
-    const clean = files.filter((item) => !(item.trashedAt && now - new Date(item.trashedAt).getTime() > 15 * 24 * 60 * 60 * 1000));
+    const clean = files.filter((item) => !(item.createdAt && now - new Date(item.createdAt).getTime() > AUTO_DELETE_MS));
     saveFiles(clean);
     return { files: clean };
   }
@@ -177,6 +178,8 @@ function localApi(path, options = {}) {
       modified: new Date().toISOString().slice(0, 10),
       sharedWith: [],
       trashedAt: null,
+      createdAt: new Date().toISOString(),
+      starred: false,
     };
     files.unshift(item);
     saveFiles(files);
@@ -231,6 +234,8 @@ function localApi(path, options = {}) {
       modified: new Date().toISOString().slice(0, 10),
       sharedWith: [],
       trashedAt: null,
+      createdAt: new Date().toISOString(),
+      starred: false,
     };
     files.unshift(item);
     saveFiles(files);
@@ -306,9 +311,10 @@ function basename(path) {
 }
 
 function currentList() {
-  const source = state.section === 'shared'
-    ? state.sharedFiles
-    : state.files.filter((f) => (state.section === 'trash' ? !!f.trashedAt : !f.trashedAt));
+  let source;
+  if (state.section === 'shared') source = state.sharedFiles;
+  else if (state.section === 'trash') source = state.files.filter((f) => !!f.trashedAt);
+  else source = state.files.filter((f) => !f.trashedAt);
 
   let scoped = source;
   if (state.section === 'drive') {
@@ -319,6 +325,10 @@ function currentList() {
       if (!name.startsWith(prefix)) return false;
       return !name.slice(prefix.length).includes('/');
     });
+  } else if (state.section === 'recents') {
+    scoped = [...source].sort((a, b) => new Date(b.createdAt || b.modified || 0) - new Date(a.createdAt || a.modified || 0));
+  } else if (state.section === 'starred') {
+    scoped = source.filter((f) => !!f.starred);
   }
 
   const q = $('searchInput').value.trim().toLowerCase();
@@ -344,9 +354,9 @@ function renderDetails() {
   $('detailsBox').classList.toggle('hidden', items.length === 0);
 
   $('selectionCount').textContent = items.length ? `${items.length} selected` : 'No selection';
-  $('shareBtn').disabled = !(items.length === 1 && state.section === 'drive');
+  $('shareBtn').disabled = !(items.length === 1 && !['trash','shared'].includes(state.section));
   $('downloadBtn').disabled = !(items.length === 1 && single?.type !== 'folder' && state.section !== 'trash');
-  $('trashBtn').disabled = !(items.length > 0 && state.section === 'drive');
+  $('trashBtn').disabled = !(items.length > 0 && state.section !== 'trash');
   $('deleteForeverBtn').disabled = !(items.length > 0 && state.section === 'trash');
   $('clearBinBtn').classList.toggle('hidden', state.section !== 'trash');
 
@@ -459,7 +469,7 @@ function renderGrid() {
 
   renderStorage();
   renderUploadProgress();
-  const readonly = state.section === 'shared';
+  const readonly = state.section === 'shared' || state.section === 'trash';
   $('uploadFileBtn').disabled = readonly;
   $('uploadFolderBtn').disabled = readonly;
   $('newFolderBtn').disabled = readonly;

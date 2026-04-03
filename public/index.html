@@ -47,7 +47,7 @@
         <div class="topbar-actions">
           <button id="uploadFileBtn" class="icon-btn" title="Upload Files"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" stroke-linecap="round"/></svg></button>
           <button id="newFolderBtn" class="icon-btn" title="New Folder"><svg viewBox="0 0 16 16"><path d="M2 5a2 2 0 012-2h2.5l2 2H12a2 2 0 012 2v5a2 2 0 01-2 2H4a2 2 0 01-2-2V5z"/></svg></button>
-          <button id="newQuickBtn" class="icon-btn" title="Quick Upload"><svg viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h8" stroke-linecap="round"/></svg></button>
+          <button id="newMenuBtn" class="icon-btn" title="Menu"><svg viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h8" stroke-linecap="round"/></svg></button>
           <span id="currentUser" class="user-pill"></span>
           <div class="account-wrap">
             <button id="accountMenuBtn" class="avatar" title="Account"><span id="accountAvatar">AK</span></button>
@@ -60,12 +60,13 @@
       </header>
 
       <aside class="sidebar">
-        <button class="new-btn" id="uploadFolderBtn">+ New</button>
+        <button class="new-btn" id="newQuickBtn">+ New</button>
 
         <button data-section="drive" class="nav-item side-btn active">My Drive</button>
         <button data-section="shared" class="nav-item side-btn">Shared with me</button>
-        <div class="nav-item" data-static="1">Recents</div>
-        <div class="nav-item" data-static="1">Starred</div>
+        <button data-section="trash" class="nav-item side-btn">Trash Bin</button>
+        <button data-section="recents" class="nav-item side-btn">Recents</button>
+        <button data-section="starred" class="nav-item side-btn">Starred</button>
 
         <div class="nav-group">Folders</div>
         <div class="nav-item" data-static="1">Archive</div>
@@ -84,7 +85,6 @@
           <div class="storage-bar"><div id="uploadProgressBar" class="storage-fill"></div></div>
           <div id="uploadProgressText" class="storage-num">0%</div>
         </div>
-      </aside>
 
       <main class="main" id="main">
         <div class="main-header">
@@ -97,12 +97,14 @@
 
         <div class="action-row">
           <button id="folderUpBtn" class="btn">Up</button>
+          <button id="uploadFolderBtn" class="btn">Upload Folder</button>
           <button id="shareBtn" class="btn" disabled>Share</button>
           <button id="downloadBtn" class="btn" disabled>Download</button>
           <button id="trashBtn" class="btn" disabled>Move to Trash</button>
           <button id="deleteForeverBtn" class="btn danger" disabled>Delete Forever</button>
           <button id="clearBinBtn" class="btn danger hidden">Clear Bin</button>
         </div>
+      </aside>
 
         <div class="section-title">Files · <span id="selectionCount">No selection</span></div>
         <input id="fileInput" type="file" multiple hidden>

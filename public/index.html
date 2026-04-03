@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NebulaCloud Drive</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <section id="authPage" class="page auth-page">
+    <div class="auth-card glass">
+      <div class="auth-brand">
+        <div class="auth-logo-wrap">
+          <svg class="auth-logo" viewBox="0 0 28 28" fill="none"><circle cx="14" cy="14" r="13" stroke="url(#alg1)" stroke-width="1.5"/><path d="M7 16c0-3.866 3.134-7 7-7s7 3.134 7 7" stroke="url(#alg2)" stroke-width="1.8" stroke-linecap="round"/><circle cx="14" cy="16" r="3" fill="url(#alg2)"/><defs><linearGradient id="alg1" x1="0" y1="0" x2="28" y2="28"><stop stop-color="#a78bfa"/><stop offset="1" stop-color="#2dd4c0"/></linearGradient><linearGradient id="alg2" x1="7" y1="9" x2="21" y2="23"><stop stop-color="#7c6fff"/><stop offset="1" stop-color="#2dd4c0"/></linearGradient></defs></svg>
+        </div>
+        <h1>Welcome to NebulaCloud Drive</h1>
+      </div>
+      <p class="sub">Sign in to enter your cloud workspace.</p>
+      <div class="tabs">
+        <button id="tabSignin" class="tab active">Sign In</button>
+        <button id="tabSignup" class="tab">Sign Up</button>
+      </div>
+      <label>Email</label>
+      <input id="authEmail" type="email" placeholder="name@company.com" />
+      <label>Password</label>
+      <input id="authPassword" type="password" placeholder="At least 6 characters" />
+      <button id="authSubmit" class="btn primary">Sign In</button>
+      <p id="authMessage" class="hint"></p>
+    </div>
+  </section>
+
+  <section id="drivePage" class="page hidden drive-shell">
+    <header class="topbar glass">
+      <div class="brand">
+        <div class="brand-mark">
+          <svg viewBox="0 0 72 72" fill="none" aria-hidden="true">
+            <path d="M21 54h30a13 13 0 1 0-2.6-25.8A16 16 0 0 0 18 33.2 10.5 10.5 0 0 0 21 54Z" stroke="url(#b1)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M36 43V24m0 0-8 8m8-8 8 8" stroke="url(#b2)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+            <defs>
+              <linearGradient id="b1" x1="10" y1="10" x2="66" y2="62"><stop stop-color="#3b82f6"/><stop offset="1" stop-color="#22d3ee"/></linearGradient>
+              <linearGradient id="b2" x1="20" y1="20" x2="52" y2="52"><stop stop-color="#2563eb"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="brand-copy">
+          <span class="brand-title">DATA CLOUD</span>
+          <small>Secure. Simple. Storage.</small>
+        </div>
+      </div>
+      <div class="search-wrap"><input id="searchInput" placeholder="Search files and folders" /></div>
+      <span id="currentUser" class="user-pill"></span>
+      <div class="account-wrap">
+        <button id="accountMenuBtn" class="avatar" title="Account"><span id="accountAvatar">U</span></button>
+        <div id="accountMenu" class="account-menu hidden glass">
+          <button id="openAccountBtn">Account</button>
+          <button id="signOutBtn">Sign Out</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <aside class="left-rail glass">
+        <button id="newQuickBtn" class="new-btn">+ New</button>
+        <button data-section="drive" class="side-btn active">My Drive</button>
+        <button data-section="shared" class="side-btn">Shared with Me</button>
+        <button data-section="trash" class="side-btn">Trash Bin</button>
+        <div class="storage">
+          <div>Storage</div>
+          <strong id="storageText">0 MB / 10 GB</strong>
+          <div class="bar"><div id="storageBar"></div></div>
+        </div>
+      </aside>
+
+      <section class="content glass">
+        <div class="toolbar">
+          <button id="uploadFileBtn" class="btn primary">Upload Files</button>
+          <button id="uploadFolderBtn" class="btn">Upload Folder</button>
+          <button id="newFolderBtn" class="btn">New Folder</button>
+          <button id="shareBtn" class="btn" disabled>Share</button>
+          <button id="downloadBtn" class="btn" disabled>Download</button>
+          <button id="trashBtn" class="btn" disabled>Move to Trash</button>
+          <button id="deleteForeverBtn" class="btn danger" disabled>Delete Permanently</button>
+          <button id="clearBinBtn" class="btn danger hidden">Clear Bin</button>
+        </div>
+
+        <div class="suggested">
+          <h3>Cloud Workspace</h3>
+          <div class="selection-meta" id="selectionCount">No selection</div>
+        </div>
+
+        <div class="pathbar">
+          <button id="folderUpBtn" class="btn">Up</button>
+          <span id="folderPathLabel">My Drive</span>
+        </div>
+
+        <input id="fileInput" type="file" multiple hidden>
+        <input id="folderInput" type="file" webkitdirectory directory multiple hidden>
+
+        <div class="table-head">
+          <div>Name</div><div>Owner</div><div>Last modified</div><div>File size</div>
+        </div>
+
+        <div id="empty" class="empty">No items in this section.</div>
+        <div id="grid" class="grid"></div>
+      </section>
+
+      <section class="details glass">
+        <h3>Details</h3>
+        <div id="detailsEmpty" class="hint">Select files or folders to view details.</div>
+        <div id="detailsBox" class="hidden">
+          <p><strong id="dName"></strong></p>
+          <p>Type: <span id="dType"></span></p>
+          <p>Size: <span id="dSize"></span></p>
+          <p>Modified: <span id="dModified"></span></p>
+          <p>Shared with: <span id="dShared"></span></p>
+        </div>
+      </section>
+    </main>
+  </section>
+
+  <div id="shareModal" class="modal hidden">
+    <div class="modal-card glass">
+      <h4>Share Item</h4>
+      <input id="shareEmail" type="email" placeholder="teammate@company.com" />
+      <div class="modal-actions">
+        <button id="cancelShare" class="btn">Cancel</button>
+        <button id="confirmShare" class="btn primary">Share</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="accountModal" class="modal hidden">
+    <div class="modal-card glass">
+      <h4>Account</h4>
+      <p><strong id="accountEmail"></strong></p>
+      <p id="accountStorage" class="hint"></p>
+      <label for="accountPassword" class="hint">Confirm password to delete account</label>
+      <input id="accountPassword" type="password" placeholder="Enter your password" />
+      <p id="accountDeleteMsg" class="hint error-text hidden"></p>
+      <div class="modal-actions">
+        <button id="closeAccountModal" class="btn">Close</button>
+        <button id="deleteAccountBtn" class="btn danger">Delete Account</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

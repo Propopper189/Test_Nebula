@@ -4,33 +4,63 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Nebula Drive</title>
+  
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=Syne:wght@400;500;600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  
   <link id="mainStylesheet" rel="stylesheet" href="/styles.css" />
-  <script>if(location.protocol==='file:'){document.getElementById('mainStylesheet').href='public/styles.css';}</script>
+  
   <style>
-    .shell{display:flex;flex-direction:column;height:100vh;}
-    .workspace{display:flex;flex:1;min-height:0;}
-    .sidebar{width:220px;flex-shrink:0;overflow-x:hidden;}
-    .main{flex:1;min-width:0;overflow-y:auto;}
-    @media(max-width:900px){.workspace{flex-direction:column}.sidebar{width:100%;max-height:260px}.main{width:100%}}
+    .shell { display: flex; flex-direction: column; height: 100vh; }
+    .workspace { display: flex; flex: 1; min-height: 0; }
+    .sidebar { width: 220px; flex-shrink: 0; overflow-x: hidden; }
+    .main { flex: 1; min-width: 0; overflow-y: auto; }
+    @media(max-width: 900px) {
+      .workspace { flex-direction: column; }
+      .sidebar { width: 100%; max-height: 260px; }
+      .main { width: 100%; }
+    }
   </style>
+
+  <script>
+    if (location.protocol === 'file:') {
+      document.getElementById('mainStylesheet').href = 'public/styles.css';
+    }
+  </script>
 </head>
 <body>
+
   <section id="authPage" class="page auth-page">
-    <div class="auth-card">
-      <div class="logo auth-logo-mark"><div class="logo-icon">✦</div>Nebula Drive</div>
+    <div class="auth-card glass">
+      <div class="logo auth-logo-mark">
+        <div class="auth-logo-wrap">
+          <svg class="auth-logo" viewBox="0 0 28 28" fill="none" width="28" height="28">
+            <circle cx="14" cy="14" r="13" stroke="url(#alg1)" stroke-width="1.5"/>
+            <path d="M7 16c0-3.866 3.134-7 7-7s7 3.134 7 7" stroke="url(#alg2)" stroke-width="1.8" stroke-linecap="round"/>
+            <circle cx="14" cy="16" r="3" fill="url(#alg2)"/>
+            <defs>
+              <linearGradient id="alg1" x1="0" y1="0" x2="28" y2="28"><stop stop-color="#a78bfa"/><stop offset="1" stop-color="#2dd4c0"/></linearGradient>
+              <linearGradient id="alg2" x1="7" y1="9" x2="21" y2="23"><stop stop-color="#7c6fff"/><stop offset="1" stop-color="#2dd4c0"/></linearGradient>
+            </defs>
+          </svg>
+        </div>
+        Nebula Drive
+      </div>
       <h1>Welcome back</h1>
       <p class="sub">Access your secure workspace.</p>
+      
       <div class="tabs">
         <button id="tabSignin" class="tab active">Sign In</button>
         <button id="tabSignup" class="tab">Sign Up</button>
       </div>
+      
       <label>Email</label>
       <input id="authEmail" type="email" placeholder="name@company.com" />
+      
       <label>Password</label>
       <input id="authPassword" type="password" placeholder="At least 6 characters" />
+      
       <button id="authSubmit" class="btn primary">Sign In</button>
       <p id="authMessage" class="hint"></p>
     </div>
@@ -41,25 +71,38 @@
     <div class="orb orb2"></div>
 
     <div class="shell">
-      <header class="topbar">
+      <header class="topbar glass">
         <div class="logo">
           <div class="logo-icon">
-            <svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="3"/><path d="M7 1v2M7 11v2M1 7h2M11 7h2" stroke-linecap="round"/></svg>
+            <svg viewBox="0 0 14 14" width="24" height="24">
+              <circle cx="7" cy="7" r="3" fill="none" stroke="currentColor"/>
+              <path d="M7 1v2M7 11v2M1 7h2M11 7h2" stroke="currentColor" stroke-linecap="round"/>
+            </svg>
           </div>
-          Nebula Drive
+          <div class="brand-copy">
+            <span class="brand-title">Nebula Drive</span>
+            <small style="display:block; font-size: 0.7em;">Secure. Simple. Storage.</small>
+          </div>
         </div>
+
         <div class="search-bar">
-          <svg class="search-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#888" stroke-width="2"><circle cx="7" cy="7" r="5"/><path d="M12 12l2.5 2.5" stroke-linecap="round"/></svg>
+          <svg class="search-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#888" stroke-width="2">
+            <circle cx="7" cy="7" r="5"/><path d="M12 12l2.5 2.5" stroke-linecap="round"/>
+          </svg>
           <input id="searchInput" type="text" placeholder="Search files, folders, people...">
         </div>
+
         <div class="topbar-actions">
-          <button id="uploadFileBtn" class="icon-btn" title="Upload Files"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" stroke-linecap="round"/></svg></button>
-          <button id="newFolderBtn" class="icon-btn" title="New Folder"><svg viewBox="0 0 16 16"><path d="M2 5a2 2 0 012-2h2.5l2 2H12a2 2 0 012 2v5a2 2 0 01-2 2H4a2 2 0 01-2-2V5z"/></svg></button>
-          <button id="newMenuBtn" class="icon-btn" title="Menu"><svg viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h8" stroke-linecap="round"/></svg></button>
+          <button id="uploadFileBtn" class="icon-btn" title="Upload Files">
+            <svg viewBox="0 0 16 16" width="16" height="16" stroke="currentColor" fill="none"><path d="M8 3v10M3 8h10" stroke-linecap="round"/></svg>
+          </button>
+          <button id="newFolderBtn" class="icon-btn" title="New Folder">
+            <svg viewBox="0 0 16 16" width="16" height="16" stroke="currentColor" fill="none"><path d="M2 5a2 2 0 012-2h2.5l2 2H12a2 2 0 012 2v5a2 2 0 01-2 2H4a2 2 0 01-2-2V5z"/></svg>
+          </button>
           <span id="currentUser" class="user-pill"></span>
           <div class="account-wrap">
             <button id="accountMenuBtn" class="avatar" title="Account"><span id="accountAvatar">AK</span></button>
-            <div id="accountMenu" class="account-menu hidden">
+            <div id="accountMenu" class="account-menu hidden glass">
               <button id="openAccountBtn">Account</button>
               <button id="signOutBtn">Sign Out</button>
             </div>
@@ -68,69 +111,87 @@
       </header>
 
       <div class="workspace">
-      <aside class="sidebar">
-        <button class="new-btn" id="newQuickBtn">+ New</button>
+        <aside class="sidebar left-rail glass">
+          <button class="new-btn" id="newQuickBtn">+ New</button>
 
-        <button data-section="drive" class="nav-item side-btn active">My Drive</button>
-        <button data-section="shared" class="nav-item side-btn">Shared with me</button>
-        <button data-section="trash" class="nav-item side-btn">Trash Bin</button>
-        <button data-section="recents" class="nav-item side-btn">Recents</button>
-        <button data-section="starred" class="nav-item side-btn">Starred</button>
+          <button data-section="drive" class="nav-item side-btn active">My Drive</button>
+          <button data-section="shared" class="nav-item side-btn">Shared with me</button>
+          <button data-section="recents" class="nav-item side-btn">Recents</button>
+          <button data-section="starred" class="nav-item side-btn">Starred</button>
+          <button data-section="trash" class="nav-item side-btn">Trash Bin</button>
 
-        <div class="nav-group">Folders</div>
-        <div class="nav-item" data-static="1">Archive</div>
+          <div class="nav-group" style="margin-top: 1rem;">Folders</div>
+          <div class="nav-item" data-static="1">Archive</div>
 
-        <div class="nav-group">Team</div>
-        <div class="nav-item" data-static="1">Team Space</div>
+          <div class="nav-group" style="margin-top: 1rem;">Team</div>
+          <div class="nav-item" data-static="1">Team Space</div>
 
-        <div class="storage-section">
-          <div class="storage-label">Storage used</div>
-          <div class="storage-bar"><div id="storageBar" class="storage-fill"></div></div>
-          <div id="storageText" class="storage-num">0 MB / 10 GB</div>
-        </div>
-
-        <div id="uploadProgressBox" class="storage-section hidden">
-          <div class="storage-label">Upload progress</div>
-          <div class="storage-bar"><div id="uploadProgressBar" class="storage-fill"></div></div>
-          <div id="uploadProgressText" class="storage-num">0%</div>
-        </div>
-
-      <main class="main" id="main">
-        <div class="main-header">
-          <div class="breadcrumb"><span class="bc-parent">My Drive</span><span class="bc-sep">/</span><span id="folderPathLabel" class="bc-current">All Files</span></div>
-          <div class="view-toggle">
-            <button class="vt-btn active" id="grid-btn"><svg viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg></button>
-            <button class="vt-btn" id="list-btn"><svg viewBox="0 0 16 16"><path d="M4 4h10M4 8h10M4 12h10M2 4h.01M2 8h.01M2 12h.01" stroke-linecap="round"/></svg></button>
+          <div class="storage-section" style="margin-top: auto; padding-top: 2rem;">
+            <div class="storage-label">Storage used</div>
+            <div class="storage-bar"><div id="storageBar" class="storage-fill" style="width: 0%;"></div></div>
+            <div id="storageText" class="storage-num">0 MB / 10 GB</div>
           </div>
-        </div>
 
-        <div class="action-row">
-          <button id="folderUpBtn" class="btn">Up</button>
-          <button id="uploadFolderBtn" class="btn">Upload Folder</button>
-          <button id="shareBtn" class="btn" disabled>Share</button>
-          <button id="downloadBtn" class="btn" disabled>Download</button>
-          <button id="trashBtn" class="btn" disabled>Move to Trash</button>
-          <button id="deleteForeverBtn" class="btn danger" disabled>Delete Forever</button>
-          <button id="clearBinBtn" class="btn danger hidden">Clear Bin</button>
-        </div>
+          <div id="uploadProgressBox" class="storage-section hidden">
+            <div class="storage-label">Upload progress</div>
+            <div class="storage-bar"><div id="uploadProgressBar" class="storage-fill" style="width: 0%;"></div></div>
+            <div id="uploadProgressText" class="storage-num">0%</div>
+          </div>
+        </aside>
 
-        <div class="section-title">Files · <span id="selectionCount">No selection</span></div>
-        <input id="fileInput" type="file" multiple hidden>
-        <input id="folderInput" type="file" webkitdirectory directory multiple hidden>
-        <div id="empty" class="empty">No items in this section.</div>
-        <div id="grid"></div>
-      </main>
-      </div>
+        <main class="main content glass" id="main">
+          <div class="main-header">
+            <div class="breadcrumb">
+              <span class="bc-parent">My Drive</span><span class="bc-sep">/</span><span id="folderPathLabel" class="bc-current">All Files</span>
+            </div>
+            <div class="view-toggle">
+              <button class="vt-btn active" id="grid-btn">
+                <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+              </button>
+              <button class="vt-btn" id="list-btn">
+                <svg viewBox="0 0 16 16" width="16" height="16" stroke="currentColor" fill="none"><path d="M4 4h10M4 8h10M4 12h10M2 4h.01M2 8h.01M2 12h.01" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+          </div>
 
-      <div id="detailsPanel" class="hidden">
-        <div id="detailsEmpty" class="hint">Select files or folders to view details.</div>
-        <div id="detailsBox" class="hidden">
-          <p><strong id="dName"></strong></p>
-          <p>Type: <span id="dType"></span></p>
-          <p>Size: <span id="dSize"></span></p>
-          <p>Modified: <span id="dModified"></span></p>
-          <p>Shared with: <span id="dShared"></span></p>
-        </div>
+          <div class="action-row">
+            <button id="folderUpBtn" class="btn">Up</button>
+            <button id="uploadFolderBtn" class="btn">Upload Folder</button>
+            <button id="shareBtn" class="btn" disabled>Share</button>
+            <button id="downloadBtn" class="btn" disabled>Download</button>
+            <button id="trashBtn" class="btn" disabled>Move to Trash</button>
+            <button id="deleteForeverBtn" class="btn danger" disabled>Delete Forever</button>
+            <button id="clearBinBtn" class="btn danger hidden">Clear Bin</button>
+          </div>
+
+          <div class="section-title" style="margin-top: 1rem;">
+            Files · <span id="selectionCount">No selection</span>
+          </div>
+          
+          <input id="fileInput" type="file" multiple hidden>
+          <input id="folderInput" type="file" webkitdirectory directory multiple hidden>
+
+          <div class="table-head">
+            <div>Name</div><div>Owner</div><div>Last modified</div><div>File size</div>
+          </div>
+
+          <div id="empty" class="empty">No items in this section.</div>
+          <div id="grid" class="grid"></div>
+        </main>
+
+        <aside class="sidebar details glass">
+          <h3>Details</h3>
+          <div id="detailsPanel">
+            <div id="detailsEmpty" class="hint">Select files or folders to view details.</div>
+            <div id="detailsBox" class="hidden">
+              <p><strong id="dName"></strong></p>
+              <p>Type: <span id="dType"></span></p>
+              <p>Size: <span id="dSize"></span></p>
+              <p>Modified: <span id="dModified"></span></p>
+              <p>Shared with: <span id="dShared"></span></p>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   </section>
@@ -162,9 +223,10 @@
   </div>
 
   <div id="toast" class="toast"></div>
+
   <script>
-    const appScript=document.createElement('script');
-    appScript.src=location.protocol==='file:'?'public/app.js':'/app.js';
+    const appScript = document.createElement('script');
+    appScript.src = location.protocol === 'file:' ? 'public/app.js' : '/app.js';
     document.body.appendChild(appScript);
   </script>
 </body>

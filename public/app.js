@@ -13,6 +13,7 @@ const state = {
   section: 'drive',
   currentFolder: '',
   selectedIds: new Set(),
+  uploadProgress: { active: false, percent: 0, uploadedBytes: 0, totalBytes: 0, uploadedFiles: 0, totalFiles: 0 },
 };
 
 const localBlobMap = new Map();
@@ -343,6 +344,17 @@ function renderStorage() {
   $('accountStorage').textContent = `${fmt(used)} of ${fmt(LIMIT)} used`;
 }
 
+function renderUploadProgress() {
+  const box = $('uploadProgressBox');
+  const bar = $('uploadProgressBar');
+  const text = $('uploadProgressText');
+  const p = state.uploadProgress;
+  box.classList.toggle('hidden', !p.active);
+  if (!p.active) return;
+  bar.style.width = `${p.percent}%`;
+  text.textContent = `${p.percent}% · ${fmt(p.uploadedBytes)} / ${fmt(p.totalBytes)} · ${p.uploadedFiles}/${p.totalFiles} files`;
+}
+
 function renderGrid() {
   const list = currentList();
   const grid = $('grid');
@@ -393,10 +405,11 @@ function renderGrid() {
     grid.appendChild(row);
   });
 
-  $('folderPathLabel').textContent = state.currentFolder ? `My Drive / ${state.currentFolder}` : 'My Drive';
+  $('folderPathLabel').textContent = state.currentFolder || 'All Files';
   $('folderUpBtn').disabled = !(state.section === 'drive' && state.currentFolder);
 
   renderStorage();
+  renderUploadProgress();
   const readonly = state.section === 'shared';
   $('uploadFileBtn').disabled = readonly;
   $('uploadFolderBtn').disabled = readonly;
@@ -415,6 +428,33 @@ async function loadDrive() {
   $('drivePage').classList.remove('hidden');
   renderGrid();
   renderDetails();
+}
+
+function uploadSingleFileWithProgress(file, parentPath, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', apiBase('/upload'));
+    if (state.token) xhr.setRequestHeader('Authorization', `Bearer ${state.token}`);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else {
+        try {
+          const body = JSON.parse(xhr.responseText || '{}');
+          reject(new Error(body.message || 'Upload failed'));
+        } catch {
+          reject(new Error('Upload failed'));
+        }
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    const form = new FormData();
+    form.append('file', file, file.name);
+    form.append('parentPath', parentPath);
+    xhr.send(form);
+  });
 }
 
 async function uploadRecords(fileList, isFolder = false) {
@@ -437,6 +477,10 @@ async function uploadRecords(fileList, isFolder = false) {
     }
   }
 
+  const totalBytes = files.reduce((sum, file) => sum + (file.size || 0), 0);
+  state.uploadProgress = { active: true, percent: 0, uploadedBytes: 0, totalBytes, uploadedFiles: 0, totalFiles: files.length };
+  renderUploadProgress();
+
   let uploaded = 0;
   for (const file of files) {
     if (used + file.size > LIMIT) {
@@ -447,23 +491,37 @@ async function uploadRecords(fileList, isFolder = false) {
     const relParent = isFolder ? normalizePath((file.webkitRelativePath || '').split('/').slice(0, -1).join('/')) : '';
     const parentPath = normalizePath(state.currentFolder ? `${state.currentFolder}/${relParent}` : relParent || state.currentFolder);
 
+    const alreadyUploaded = state.uploadProgress.uploadedBytes;
     if (IS_FILE_MODE) {
       const created = await api('/files', {
         method: 'POST',
         body: JSON.stringify({ name: file.name, type: 'file', size: file.size, parentPath }),
       });
       localBlobMap.set(created.id, file);
+      state.uploadProgress.uploadedBytes = alreadyUploaded + file.size;
     } else {
-      const form = new FormData();
-      form.append('file', file, file.name);
-      form.append('parentPath', parentPath);
-      await api('/upload', { method: 'POST', body: form });
+      await uploadSingleFileWithProgress(file, parentPath, (loadedBytes) => {
+        state.uploadProgress.uploadedBytes = alreadyUploaded + loadedBytes;
+        state.uploadProgress.percent = totalBytes ? Math.min(100, Math.round((state.uploadProgress.uploadedBytes / totalBytes) * 100)) : 100;
+        renderUploadProgress();
+      });
+      state.uploadProgress.uploadedBytes = alreadyUploaded + file.size;
     }
 
+    state.uploadProgress.uploadedFiles += 1;
+    state.uploadProgress.percent = totalBytes ? Math.min(100, Math.round((state.uploadProgress.uploadedBytes / totalBytes) * 100)) : 100;
+    renderUploadProgress();
     used += file.size;
     uploaded += 1;
   }
+
   await loadDrive();
+  state.uploadProgress.percent = 100;
+  renderUploadProgress();
+  setTimeout(() => {
+    state.uploadProgress.active = false;
+    renderUploadProgress();
+  }, 1200);
   toast(uploaded ? `Uploaded ${uploaded} item(s).` : 'Nothing uploaded.');
 }
 

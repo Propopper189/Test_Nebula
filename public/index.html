@@ -65,9 +65,9 @@
 
         <button data-section="drive" class="nav-item side-btn active">My Drive</button>
         <button data-section="shared" class="nav-item side-btn">Shared with me</button>
-        <button data-section="trash" class="nav-item side-btn">Trash Bin</button>
         <button data-section="recents" class="nav-item side-btn">Recents</button>
         <button data-section="starred" class="nav-item side-btn">Starred</button>
+        <button data-section="trash" class="nav-item side-btn">Trash Bin</button>
 
         <div class="nav-group">Folders</div>
         <div class="nav-item" data-static="1">Archive</div>
@@ -109,6 +109,9 @@
         <div class="section-title">Files · <span id="selectionCount">No selection</span></div>
         <input id="fileInput" type="file" multiple hidden>
         <input id="folderInput" type="file" webkitdirectory directory multiple hidden>
+        <div class="table-head">
+          <div>Name</div><div>Owner</div><div>Last modified</div><div>File size</div>
+        </div>
         <div id="empty" class="empty">No items in this section.</div>
         <div id="grid"></div>
       </main>

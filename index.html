@@ -10,10 +10,11 @@
   <link id="mainStylesheet" rel="stylesheet" href="/styles.css" />
   <script>if(location.protocol==='file:'){document.getElementById('mainStylesheet').href='public/styles.css';}</script>
   <style>
-    .shell{display:flex !important;flex-direction:column !important;height:100vh !important;}
-    .workspace{display:flex !important;flex:1 !important;min-height:0 !important;}
-    .sidebar{width:220px !important;flex-shrink:0 !important;overflow-x:hidden !important;}
-    .main{flex:1 !important;min-width:0 !important;overflow-y:auto !important;}
+    .shell{display:flex;flex-direction:column;height:100vh;}
+    .workspace{display:flex;flex:1;min-height:0;}
+    .sidebar{width:220px;flex-shrink:0;overflow-x:hidden;}
+    .main{flex:1;min-width:0;overflow-y:auto;}
+    @media(max-width:900px){.workspace{flex-direction:column}.sidebar{width:100%;max-height:260px}.main{width:100%}}
   </style>
 </head>
 <body>

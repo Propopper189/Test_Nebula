@@ -191,6 +191,7 @@ app.post('/api/files', auth, (req, res) => {
     createdAt: new Date().toISOString(),
     starred: false,
     teamSpace: false,
+    archived: false,
   };
   ensureUserFiles(req.userEmail).unshift(item);
   saveDb();
@@ -217,6 +218,7 @@ app.post('/api/upload', auth, upload.single('file'), (req, res) => {
     createdAt: new Date().toISOString(),
     starred: false,
     teamSpace: false,
+    archived: false,
     mimeType: req.file.mimetype || 'application/octet-stream',
   };
 
@@ -276,6 +278,18 @@ app.patch('/api/files/:id/team-space', auth, (req, res) => {
 
   const next = typeof req.body?.teamSpace === 'boolean' ? req.body.teamSpace : !file.teamSpace;
   file.teamSpace = next;
+  saveDb();
+  res.json(file);
+});
+
+app.patch('/api/files/:id/archive', auth, (req, res) => {
+  const files = ensureUserFiles(req.userEmail);
+  const file = files.find((f) => f.id === req.params.id);
+  if (!file) return res.status(404).json({ message: 'File not found.' });
+  if (file.trashedAt) return res.status(400).json({ message: 'Cannot archive items in trash.' });
+
+  const next = typeof req.body?.archived === 'boolean' ? req.body.archived : !file.archived;
+  file.archived = next;
   saveDb();
   res.json(file);
 });

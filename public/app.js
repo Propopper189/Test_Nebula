@@ -52,6 +52,7 @@ function recordRecent(id) {
 
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB` : `${(n / 1024 ** 2).toFixed(2)} MB`);
+const toMB = (n) => `${(Number(n || 0) / (1024 ** 2)).toFixed(2)} MB`;
 const initials = (email) => (email || 'U').split('@')[0].slice(0, 2).toUpperCase();
 
 const fileTypeColor = {
@@ -205,6 +206,7 @@ function localApi(path, options = {}) {
       createdAt: new Date().toISOString(),
       starred: false,
       teamSpace: false,
+      archived: false,
     };
     files.unshift(item);
     saveFiles(files);
@@ -249,6 +251,16 @@ function localApi(path, options = {}) {
     return item;
   }
 
+  if (path.startsWith('/files/') && path.endsWith('/archive') && method === 'PATCH') {
+    const id = path.split('/')[2];
+    const item = files.find((f) => f.id === id);
+    if (!item) throw new Error('File not found.');
+    if (item.trashedAt) throw new Error('Cannot archive items in trash.');
+    item.archived = typeof body.archived === 'boolean' ? body.archived : !item.archived;
+    saveFiles(files);
+    return item;
+  }
+
   if (path === '/files/delete-batch' && method === 'DELETE') {
     const ids = new Set(body.ids || []);
     const kept = files.filter((f) => !(ids.has(f.id) && f.trashedAt));
@@ -282,6 +294,7 @@ function localApi(path, options = {}) {
       createdAt: new Date().toISOString(),
       starred: false,
       teamSpace: false,
+      archived: false,
     };
     files.unshift(item);
     saveFiles(files);
@@ -359,8 +372,9 @@ function basename(path) {
 function currentList() {
   let source;
   if (state.section === 'shared') source = state.sharedFiles;
+  else if (state.section === 'archive') source = state.files.filter((f) => !f.trashedAt && !!f.archived);
   else if (state.section === 'trash') source = state.files.filter((f) => !!f.trashedAt);
-  else source = state.files.filter((f) => !f.trashedAt);
+  else source = state.files.filter((f) => !f.trashedAt && !f.archived);
 
   let scoped = source;
   if (state.section === 'drive') {
@@ -372,11 +386,11 @@ function currentList() {
       return !name.slice(prefix.length).includes('/');
     });
   } else if (state.section === 'recents') {
-    const allItems = [...state.files.filter((f) => !f.trashedAt), ...state.sharedFiles.filter((f) => !f.trashedAt)];
+    const allItems = [...state.files.filter((f) => !f.trashedAt && !f.archived), ...state.sharedFiles.filter((f) => !f.trashedAt)];
     const byId = new Map(allItems.map((item) => [item.id, item]));
     scoped = state.recents.map((id) => byId.get(id)).filter(Boolean);
   } else if (state.section === 'team') {
-    const ownTeam = state.files.filter((f) => !f.trashedAt && !!f.teamSpace);
+    const ownTeam = state.files.filter((f) => !f.trashedAt && !f.archived && !!f.teamSpace);
     const merged = [...ownTeam, ...state.sharedFiles.filter((f) => !f.trashedAt)];
     scoped = merged.filter((item, idx, arr) => arr.findIndex((x) => x.id === item.id) === idx);
   } else if (state.section === 'starred') {
@@ -409,6 +423,8 @@ function renderDetails() {
   $('shareBtn').disabled = !(items.length === 1 && !['trash','shared'].includes(state.section));
   $('downloadBtn').disabled = !(items.length === 1 && single?.type !== 'folder' && state.section !== 'trash');
   $('trashBtn').disabled = !(items.length > 0 && state.section !== 'trash');
+  $('archiveBtn').disabled = !(items.length > 0 && !['shared', 'trash', 'team'].includes(state.section));
+  $('archiveBtn').textContent = state.section === 'archive' ? 'Unarchive' : 'Archive';
   $('starBtn').disabled = !(items.length > 0 && !['shared', 'trash'].includes(state.section));
   $('teamSpaceBtn').disabled = !(items.length > 0 && !['shared', 'trash', 'team'].includes(state.section));
   $('deleteForeverBtn').disabled = !(items.length > 0 && state.section === 'trash');
@@ -446,7 +462,7 @@ function renderUploadProgress() {
   box.classList.toggle('hidden', !p.active);
   if (!p.active) return;
   bar.style.width = `${p.percent}%`;
-  text.textContent = `${p.percent}% · ${fmt(p.uploadedBytes)} / ${fmt(p.totalBytes)} · ${p.uploadedFiles}/${p.totalFiles} files`;
+  text.textContent = `${p.percent}% · ${toMB(p.uploadedBytes)} / ${toMB(p.totalBytes)} · ${p.uploadedFiles}/${p.totalFiles} files`;
 }
 
 function renderGrid() {
@@ -527,7 +543,7 @@ function renderGrid() {
 
   renderStorage();
   renderUploadProgress();
-  const readonly = state.section === 'shared' || state.section === 'trash' || state.section === 'team';
+  const readonly = state.section === 'shared' || state.section === 'trash' || state.section === 'team' || state.section === 'archive';
   $('uploadFileBtn').disabled = readonly;
   $('uploadFolderBtn').disabled = readonly;
   $('newFolderBtn').disabled = readonly;
@@ -670,6 +686,15 @@ async function toggleStarSelected() {
   toast(shouldStar ? 'Starred.' : 'Unstarred.');
 }
 
+async function toggleArchiveSelected() {
+  const items = selectedItems();
+  if (!items.length) return;
+  const shouldArchive = state.section === 'archive' ? false : items.some((item) => !item.archived);
+  await Promise.all(items.map((item) => api(`/files/${item.id}/archive`, { method: 'PATCH', body: JSON.stringify({ archived: shouldArchive }) })));
+  await loadDrive();
+  toast(shouldArchive ? 'Archived.' : 'Unarchived.');
+}
+
 async function toggleTeamSpaceSelected() {
   const items = selectedItems();
   if (!items.length) return;
@@ -791,6 +816,7 @@ function wire() {
   $('shareBtn').onclick = openShare;
   $('downloadBtn').onclick = downloadSelected;
   $('trashBtn').onclick = moveToTrash;
+  $('archiveBtn').onclick = toggleArchiveSelected;
   $('starBtn').onclick = toggleStarSelected;
   $('teamSpaceBtn').onclick = toggleTeamSpaceSelected;
   $('deleteForeverBtn').onclick = deleteForever;

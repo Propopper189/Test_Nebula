@@ -561,10 +561,17 @@ function renderGrid() {
 }
 
 async function loadDrive() {
-  const [filesResp, sharedResp, teamResp] = await Promise.all([api('/files'), api('/files/shared'), api('/files/team-space')]);
-  state.files = filesResp.files;
-  state.sharedFiles = sharedResp.files;
-  state.teamFiles = teamResp.files;
+  const [filesResult, sharedResult, teamResult] = await Promise.allSettled([api('/files'), api('/files/shared'), api('/files/team-space')]);
+  if (filesResult.status !== 'fulfilled') throw filesResult.reason;
+  if (sharedResult.status !== 'fulfilled') throw sharedResult.reason;
+
+  const filesResp = filesResult.value || {};
+  const sharedResp = sharedResult.value || {};
+  const teamResp = teamResult.status === 'fulfilled' ? (teamResult.value || {}) : {};
+
+  state.files = Array.isArray(filesResp.files) ? filesResp.files : [];
+  state.sharedFiles = Array.isArray(sharedResp.files) ? sharedResp.files : [];
+  state.teamFiles = Array.isArray(teamResp.files) ? teamResp.files : [];
   loadRecents();
   const validIds = new Set([...state.files, ...state.sharedFiles, ...state.teamFiles].map((item) => item.id));
   state.recents = state.recents.filter((id) => validIds.has(id));

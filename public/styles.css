@@ -3,6 +3,14 @@
 body{font-family:'DM Sans',sans-serif;background:var(--nb-bg);color:var(--nb-text);min-height:100vh;overflow:hidden}
 .page{min-height:100vh}.hidden{display:none!important}
 
+/* themed scrollbar */
+*{scrollbar-width:thin;scrollbar-color:rgba(123,110,246,.85) rgba(22,24,39,.9)}
+*::-webkit-scrollbar{width:10px;height:10px}
+*::-webkit-scrollbar-track{background:rgba(22,24,39,.9);border-radius:999px}
+*::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(123,110,246,.95),rgba(62,207,207,.85));border-radius:999px;border:2px solid rgba(22,24,39,.9)}
+*::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,rgba(140,128,255,1),rgba(86,223,223,.95))}
+*::-webkit-scrollbar-corner{background:rgba(22,24,39,.9)}
+
 /* login */
 .auth-page{display:grid;place-items:center;padding:20px;background:radial-gradient(1000px 650px at 0% -20%,rgba(123,110,246,.3),transparent),radial-gradient(1000px 650px at 100% 0%,rgba(62,207,207,.18),transparent),#090b14}
 .auth-card{width:min(420px,100%);padding:26px;border-radius:20px;background:rgba(16,18,31,.9);border:1px solid var(--nb-border);box-shadow:0 24px 56px rgba(0,0,0,.42)}

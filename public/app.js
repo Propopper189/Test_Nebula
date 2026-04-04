@@ -1,5 +1,6 @@
 const API = '/api';
 const LIMIT = 10 * 1024 * 1024 * 1024;
+const AUTO_DELETE_MS = 3 * 24 * 60 * 60 * 1000;
 const IS_FILE_MODE = location.protocol === 'file:';
 const DEV_API_ORIGIN = localStorage.getItem('nebula_api_origin') || 'http://localhost:3000';
 const IS_LOCALHOST = ['localhost', '127.0.0.1'].includes(location.hostname);
@@ -13,6 +14,9 @@ const state = {
   section: 'drive',
   currentFolder: '',
   selectedIds: new Set(),
+  view: 'grid',
+  uploadProgress: { active: false, percent: 0, uploadedBytes: 0, totalBytes: 0, uploadedFiles: 0, totalFiles: 0 },
+  recents: [],
 };
 
 const localBlobMap = new Map();
@@ -23,9 +27,62 @@ const localKey = {
   files: (email) => `nebula_local_files_${email}`,
 };
 
+function recentsKey() {
+  return `nebula:recents:${(state.user || 'anon').toLowerCase()}`;
+}
+
+function loadRecents() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(recentsKey()) || '[]');
+    state.recents = Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+  } catch {
+    state.recents = [];
+  }
+}
+
+function saveRecents() {
+  localStorage.setItem(recentsKey(), JSON.stringify(state.recents.slice(0, 200)));
+}
+
+function recordRecent(id) {
+  if (!id) return;
+  state.recents = [id, ...state.recents.filter((itemId) => itemId !== id)].slice(0, 200);
+  saveRecents();
+}
+
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB` : `${(n / 1024 ** 2).toFixed(2)} MB`);
+const toMB = (n) => `${(Number(n || 0) / (1024 ** 2)).toFixed(2)} MB`;
 const initials = (email) => (email || 'U').split('@')[0].slice(0, 2).toUpperCase();
+
+const fileTypeColor = {
+  folder: '#f7c948',
+  pdf: '#ff5a62',
+  doc: '#7b6ef6',
+  file: '#7b6ef6',
+  image: '#3ecfcf',
+  video: '#7b6ef6',
+  sheet: '#3ecfcf',
+  zip: '#888888',
+};
+
+const iconSVG = {
+  pdf: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="{c}"/><path d="M5 5h6M5 7.5h6M5 10h4" stroke="{c}" stroke-linecap="round"/></svg>`,
+  doc: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="{c}"/><path d="M5 5h6M5 7.5h6M5 10h4" stroke="{c}" stroke-linecap="round"/></svg>`,
+  sheet: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="2" y="2" width="12" height="12" rx="1.5" stroke="{c}"/><path d="M2 6h12M6 2v12" stroke="{c}"/></svg>`,
+  image: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="2" y="2" width="12" height="12" rx="2" stroke="{c}"/><circle cx="6" cy="6" r="1.5" stroke="{c}"/><path d="M2 11l3-3 2 2 2-2 4 4" stroke="{c}" stroke-linecap="round"/></svg>`,
+  video: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="2" y="3" width="10" height="10" rx="1.5" stroke="{c}"/><path d="M12 6l2.5-2v8L12 10" stroke="{c}" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  folder: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><path d="M1 5a2 2 0 012-2h2.5l2 2H13a2 2 0 012 2v5a2 2 0 01-2 2H3a2 2 0 01-2-2V5z" stroke="{c}"/></svg>`,
+  zip: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="{c}"/><path d="M7 1v6M9 1v6M6 7h4v2H6z" stroke="{c}" stroke-linecap="round"/></svg>`,
+};
+
+function iconFor(item, size = 28) {
+  const type = item.type === 'folder' ? 'folder' : (item.name.split('.').pop() || item.type || 'doc').toLowerCase();
+  const normalized = (type === 'jpg' || type === 'jpeg' || type === 'png' || type === 'gif') ? 'image' : (type === 'mp4' ? 'video' : (type === 'xlsx' || type === 'csv' ? 'sheet' : type));
+  const key = iconSVG[normalized] ? normalized : (item.type === 'folder' ? 'folder' : 'doc');
+  const color = fileTypeColor[key] || '#7b6ef6';
+  return iconSVG[key].replace(/{c}/g, color).replace(/28px/g, `${size}px`);
+}
 
 function toast(msg) {
   const t = $('toast');
@@ -119,7 +176,7 @@ function localApi(path, options = {}) {
 
   if (path === '/files' && method === 'GET') {
     const now = Date.now();
-    const clean = files.filter((item) => !(item.trashedAt && now - new Date(item.trashedAt).getTime() > 15 * 24 * 60 * 60 * 1000));
+    const clean = files.filter((item) => !(item.createdAt && now - new Date(item.createdAt).getTime() > AUTO_DELETE_MS));
     saveFiles(clean);
     return { files: clean };
   }
@@ -146,6 +203,10 @@ function localApi(path, options = {}) {
       modified: new Date().toISOString().slice(0, 10),
       sharedWith: [],
       trashedAt: null,
+      createdAt: new Date().toISOString(),
+      starred: false,
+      teamSpace: false,
+      archived: false,
     };
     files.unshift(item);
     saveFiles(files);
@@ -166,6 +227,36 @@ function localApi(path, options = {}) {
     if (!users.some((u) => u.email === body.email)) throw new Error('Target user does not exist.');
     if (body.email === sessionEmail) throw new Error('You already own this item.');
     if (!item.sharedWith.includes(body.email)) item.sharedWith.push(body.email);
+    saveFiles(files);
+    return item;
+  }
+
+  if (path.startsWith('/files/') && path.endsWith('/star') && method === 'PATCH') {
+    const id = path.split('/')[2];
+    const item = files.find((f) => f.id === id);
+    if (!item) throw new Error('File not found.');
+    if (item.trashedAt) throw new Error('Cannot star items in trash.');
+    item.starred = typeof body.starred === 'boolean' ? body.starred : !item.starred;
+    saveFiles(files);
+    return item;
+  }
+
+  if (path.startsWith('/files/') && path.endsWith('/team-space') && method === 'PATCH') {
+    const id = path.split('/')[2];
+    const item = files.find((f) => f.id === id);
+    if (!item) throw new Error('File not found.');
+    if (item.trashedAt) throw new Error('Cannot add trash items to Team Space.');
+    item.teamSpace = typeof body.teamSpace === 'boolean' ? body.teamSpace : !item.teamSpace;
+    saveFiles(files);
+    return item;
+  }
+
+  if (path.startsWith('/files/') && path.endsWith('/archive') && method === 'PATCH') {
+    const id = path.split('/')[2];
+    const item = files.find((f) => f.id === id);
+    if (!item) throw new Error('File not found.');
+    if (item.trashedAt) throw new Error('Cannot archive items in trash.');
+    item.archived = typeof body.archived === 'boolean' ? body.archived : !item.archived;
     saveFiles(files);
     return item;
   }
@@ -200,6 +291,10 @@ function localApi(path, options = {}) {
       modified: new Date().toISOString().slice(0, 10),
       sharedWith: [],
       trashedAt: null,
+      createdAt: new Date().toISOString(),
+      starred: false,
+      teamSpace: false,
+      archived: false,
     };
     files.unshift(item);
     saveFiles(files);
@@ -275,9 +370,11 @@ function basename(path) {
 }
 
 function currentList() {
-  const source = state.section === 'shared'
-    ? state.sharedFiles
-    : state.files.filter((f) => (state.section === 'trash' ? !!f.trashedAt : !f.trashedAt));
+  let source;
+  if (state.section === 'shared') source = state.sharedFiles;
+  else if (state.section === 'archive') source = state.files.filter((f) => !f.trashedAt && !!f.archived);
+  else if (state.section === 'trash') source = state.files.filter((f) => !!f.trashedAt);
+  else source = state.files.filter((f) => !f.trashedAt && !f.archived);
 
   let scoped = source;
   if (state.section === 'drive') {
@@ -288,6 +385,16 @@ function currentList() {
       if (!name.startsWith(prefix)) return false;
       return !name.slice(prefix.length).includes('/');
     });
+  } else if (state.section === 'recents') {
+    const allItems = [...state.files.filter((f) => !f.trashedAt && !f.archived), ...state.sharedFiles.filter((f) => !f.trashedAt)];
+    const byId = new Map(allItems.map((item) => [item.id, item]));
+    scoped = state.recents.map((id) => byId.get(id)).filter(Boolean);
+  } else if (state.section === 'team') {
+    const ownTeam = state.files.filter((f) => !f.trashedAt && !f.archived && !!f.teamSpace);
+    const merged = [...ownTeam, ...state.sharedFiles.filter((f) => !f.trashedAt)];
+    scoped = merged.filter((item, idx, arr) => arr.findIndex((x) => x.id === item.id) === idx);
+  } else if (state.section === 'starred') {
+    scoped = source.filter((f) => !!f.starred);
   }
 
   const q = $('searchInput').value.trim().toLowerCase();
@@ -313,9 +420,13 @@ function renderDetails() {
   $('detailsBox').classList.toggle('hidden', items.length === 0);
 
   $('selectionCount').textContent = items.length ? `${items.length} selected` : 'No selection';
-  $('shareBtn').disabled = !(items.length === 1 && state.section === 'drive');
+  $('shareBtn').disabled = !(items.length === 1 && !['trash','shared'].includes(state.section));
   $('downloadBtn').disabled = !(items.length === 1 && single?.type !== 'folder' && state.section !== 'trash');
-  $('trashBtn').disabled = !(items.length > 0 && state.section === 'drive');
+  $('trashBtn').disabled = !(items.length > 0 && state.section !== 'trash');
+  $('archiveBtn').disabled = !(items.length > 0 && !['shared', 'trash', 'team'].includes(state.section));
+  $('archiveBtn').textContent = state.section === 'archive' ? 'Unarchive' : 'Archive';
+  $('starBtn').disabled = !(items.length > 0 && !['shared', 'trash'].includes(state.section));
+  $('teamSpaceBtn').disabled = !(items.length > 0 && !['shared', 'trash', 'team'].includes(state.section));
   $('deleteForeverBtn').disabled = !(items.length > 0 && state.section === 'trash');
   $('clearBinBtn').classList.toggle('hidden', state.section !== 'trash');
 
@@ -343,61 +454,96 @@ function renderStorage() {
   $('accountStorage').textContent = `${fmt(used)} of ${fmt(LIMIT)} used`;
 }
 
+function renderUploadProgress() {
+  const box = $('uploadProgressBox');
+  const bar = $('uploadProgressBar');
+  const text = $('uploadProgressText');
+  const p = state.uploadProgress;
+  box.classList.toggle('hidden', !p.active);
+  if (!p.active) return;
+  bar.style.width = `${p.percent}%`;
+  text.textContent = `${p.percent}% · ${toMB(p.uploadedBytes)} / ${toMB(p.totalBytes)} · ${p.uploadedFiles}/${p.totalFiles} files`;
+}
+
 function renderGrid() {
   const list = currentList();
   const grid = $('grid');
-  grid.innerHTML = '';
   $('empty').classList.toggle('hidden', list.length > 0);
 
-  list.forEach((item) => {
-    const row = document.createElement('article');
-    row.className = `card${state.selectedIds.has(item.id) ? ' active' : ''}`;
-    const owner = state.section === 'shared' ? (item.owner || 'shared') : 'you';
-    row.innerHTML = `
-      <div class="file-name-cell">
-        <input type="checkbox" class="row-check" ${state.selectedIds.has(item.id) ? 'checked' : ''}>
-        <span class="file-icon">${item.type === 'folder' ? '📁' : '📄'}</span>
-        <strong>${basename(item.name)}</strong>
-      </div>
-      <div>${owner}</div>
-      <div>${item.modified || '-'}</div>
-      <div>${item.type === 'folder' ? '--' : fmt(item.size || 0)}</div>
-    `;
+  if (state.view === 'grid') {
+    grid.className = 'files-grid';
+    grid.innerHTML = list.map((item) => {
+      const selected = state.selectedIds.has(item.id);
+      const label = basename(item.name);
+      return `
+        <article class="file-card${selected ? ' selected' : ''}" data-id="${item.id}">
+          <div class="fc-thumb">${iconFor(item)}</div>
+          <div class="fc-name">${label}</div>
+          <div class="fc-meta">${item.type === 'folder' ? '--' : fmt(item.size || 0)} · ${item.modified || '-'}</div>
+        </article>`;
+    }).join('');
+  } else {
+    grid.className = 'files-list';
+    grid.innerHTML = list.map((item) => {
+      const selected = state.selectedIds.has(item.id);
+      const owner = state.section === 'shared' ? (item.owner || 'shared') : 'you';
+      return `
+        <article class="list-row${selected ? ' selected' : ''}" data-id="${item.id}">
+          <div class="lr-name"><input type="checkbox" class="row-check" ${selected ? 'checked' : ''}><span class="mini-icon">${iconFor(item, 15)}</span><strong>${basename(item.name)}</strong></div>
+          <div class="lr-size">${owner}</div>
+          <div class="lr-date">${item.modified || '-'}</div>
+          <div class="lr-type">${item.type === 'folder' ? '--' : fmt(item.size || 0)}</div>
+        </article>`;
+    }).join('');
+  }
 
-    row.querySelector('.row-check').onclick = (e) => {
-      e.stopPropagation();
-      toggleSelect(item.id, e.target.checked);
-      renderGrid();
-      renderDetails();
-    };
+  grid.querySelectorAll('[data-id]').forEach((row) => {
+    const id = row.getAttribute('data-id');
+    const item = list.find((f) => f.id === id);
+    const checkbox = row.querySelector('.row-check');
+
+    if (checkbox) {
+      checkbox.onclick = (e) => {
+        e.stopPropagation();
+        toggleSelect(id, e.target.checked);
+        renderGrid();
+        renderDetails();
+      };
+    }
 
     row.ondblclick = () => {
-      if (state.section === 'drive' && item.type === 'folder') {
+      if (['drive', 'recents', 'starred'].includes(state.section) && item?.type === 'folder') {
         state.currentFolder = normalizePath(item.name);
+        state.section = 'drive';
+        document.querySelectorAll('.side-btn').forEach((b) => b.classList.toggle('active', b.dataset.section === 'drive' && !b.dataset.folder));
         state.selectedIds = new Set();
+        recordRecent(id);
         renderGrid();
         renderDetails();
       }
     };
 
     row.onclick = (e) => {
+      recordRecent(id);
       if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        const alreadyOnly = state.selectedIds.size === 1 && state.selectedIds.has(item.id);
-        state.selectedIds = alreadyOnly ? new Set() : new Set([item.id]);
+        const alreadyOnly = state.selectedIds.size === 1 && state.selectedIds.has(id);
+        state.selectedIds = alreadyOnly ? new Set() : new Set([id]);
       } else {
-        toggleSelect(item.id);
+        toggleSelect(id);
       }
       renderGrid();
       renderDetails();
     };
-    grid.appendChild(row);
   });
 
-  $('folderPathLabel').textContent = state.currentFolder ? `My Drive / ${state.currentFolder}` : 'My Drive';
+  $('grid-btn').classList.toggle('active', state.view === 'grid');
+  $('list-btn').classList.toggle('active', state.view === 'list');
+  $('folderPathLabel').textContent = state.currentFolder || 'All Files';
   $('folderUpBtn').disabled = !(state.section === 'drive' && state.currentFolder);
 
   renderStorage();
-  const readonly = state.section === 'shared';
+  renderUploadProgress();
+  const readonly = state.section === 'shared' || state.section === 'trash' || state.section === 'team' || state.section === 'archive';
   $('uploadFileBtn').disabled = readonly;
   $('uploadFolderBtn').disabled = readonly;
   $('newFolderBtn').disabled = readonly;
@@ -407,6 +553,10 @@ async function loadDrive() {
   const [filesResp, sharedResp] = await Promise.all([api('/files'), api('/files/shared')]);
   state.files = filesResp.files;
   state.sharedFiles = sharedResp.files;
+  loadRecents();
+  const validIds = new Set([...state.files, ...state.sharedFiles].map((item) => item.id));
+  state.recents = state.recents.filter((id) => validIds.has(id));
+  saveRecents();
   state.selectedIds = new Set();
   $('currentUser').textContent = state.user;
   $('accountEmail').textContent = state.user;
@@ -415,6 +565,33 @@ async function loadDrive() {
   $('drivePage').classList.remove('hidden');
   renderGrid();
   renderDetails();
+}
+
+function uploadSingleFileWithProgress(file, parentPath, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', apiBase('/upload'));
+    if (state.token) xhr.setRequestHeader('Authorization', `Bearer ${state.token}`);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else {
+        try {
+          const body = JSON.parse(xhr.responseText || '{}');
+          reject(new Error(body.message || 'Upload failed'));
+        } catch {
+          reject(new Error('Upload failed'));
+        }
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    const form = new FormData();
+    form.append('file', file, file.name);
+    form.append('parentPath', parentPath);
+    xhr.send(form);
+  });
 }
 
 async function uploadRecords(fileList, isFolder = false) {
@@ -437,6 +614,10 @@ async function uploadRecords(fileList, isFolder = false) {
     }
   }
 
+  const totalBytes = files.reduce((sum, file) => sum + (file.size || 0), 0);
+  state.uploadProgress = { active: true, percent: 0, uploadedBytes: 0, totalBytes, uploadedFiles: 0, totalFiles: files.length };
+  renderUploadProgress();
+
   let uploaded = 0;
   for (const file of files) {
     if (used + file.size > LIMIT) {
@@ -447,23 +628,37 @@ async function uploadRecords(fileList, isFolder = false) {
     const relParent = isFolder ? normalizePath((file.webkitRelativePath || '').split('/').slice(0, -1).join('/')) : '';
     const parentPath = normalizePath(state.currentFolder ? `${state.currentFolder}/${relParent}` : relParent || state.currentFolder);
 
+    const alreadyUploaded = state.uploadProgress.uploadedBytes;
     if (IS_FILE_MODE) {
       const created = await api('/files', {
         method: 'POST',
         body: JSON.stringify({ name: file.name, type: 'file', size: file.size, parentPath }),
       });
       localBlobMap.set(created.id, file);
+      state.uploadProgress.uploadedBytes = alreadyUploaded + file.size;
     } else {
-      const form = new FormData();
-      form.append('file', file, file.name);
-      form.append('parentPath', parentPath);
-      await api('/upload', { method: 'POST', body: form });
+      await uploadSingleFileWithProgress(file, parentPath, (loadedBytes) => {
+        state.uploadProgress.uploadedBytes = alreadyUploaded + loadedBytes;
+        state.uploadProgress.percent = totalBytes ? Math.min(100, Math.round((state.uploadProgress.uploadedBytes / totalBytes) * 100)) : 100;
+        renderUploadProgress();
+      });
+      state.uploadProgress.uploadedBytes = alreadyUploaded + file.size;
     }
 
+    state.uploadProgress.uploadedFiles += 1;
+    state.uploadProgress.percent = totalBytes ? Math.min(100, Math.round((state.uploadProgress.uploadedBytes / totalBytes) * 100)) : 100;
+    renderUploadProgress();
     used += file.size;
     uploaded += 1;
   }
+
   await loadDrive();
+  state.uploadProgress.percent = 100;
+  renderUploadProgress();
+  setTimeout(() => {
+    state.uploadProgress.active = false;
+    renderUploadProgress();
+  }, 1200);
   toast(uploaded ? `Uploaded ${uploaded} item(s).` : 'Nothing uploaded.');
 }
 
@@ -480,6 +675,33 @@ async function moveToTrash() {
   await api('/files/trash-batch', { method: 'PATCH', body: JSON.stringify({ ids: [...state.selectedIds] }) });
   await loadDrive();
   toast('Moved selected items to Trash.');
+}
+
+async function toggleStarSelected() {
+  const items = selectedItems();
+  if (!items.length) return;
+  const shouldStar = items.some((item) => !item.starred);
+  await Promise.all(items.map((item) => api(`/files/${item.id}/star`, { method: 'PATCH', body: JSON.stringify({ starred: shouldStar }) })));
+  await loadDrive();
+  toast(shouldStar ? 'Starred.' : 'Unstarred.');
+}
+
+async function toggleArchiveSelected() {
+  const items = selectedItems();
+  if (!items.length) return;
+  const shouldArchive = state.section === 'archive' ? false : items.some((item) => !item.archived);
+  await Promise.all(items.map((item) => api(`/files/${item.id}/archive`, { method: 'PATCH', body: JSON.stringify({ archived: shouldArchive }) })));
+  await loadDrive();
+  toast(shouldArchive ? 'Archived.' : 'Unarchived.');
+}
+
+async function toggleTeamSpaceSelected() {
+  const items = selectedItems();
+  if (!items.length) return;
+  const shouldAdd = items.some((item) => !item.teamSpace);
+  await Promise.all(items.map((item) => api(`/files/${item.id}/team-space`, { method: 'PATCH', body: JSON.stringify({ teamSpace: shouldAdd }) })));
+  await loadDrive();
+  toast(shouldAdd ? 'Added to Team Space.' : 'Removed from Team Space.');
 }
 
 async function deleteForever() {
@@ -581,6 +803,8 @@ function wire() {
   $('authSubmit').onclick = submitAuth;
   $('signOutBtn').onclick = signOut;
   $('searchInput').oninput = renderGrid;
+  $('grid-btn').onclick = () => { state.view = 'grid'; renderGrid(); };
+  $('list-btn').onclick = () => { state.view = 'list'; renderGrid(); };
 
   $('uploadFileBtn').onclick = () => $('fileInput').click();
   $('newQuickBtn').onclick = () => $('fileInput').click();
@@ -592,6 +816,9 @@ function wire() {
   $('shareBtn').onclick = openShare;
   $('downloadBtn').onclick = downloadSelected;
   $('trashBtn').onclick = moveToTrash;
+  $('archiveBtn').onclick = toggleArchiveSelected;
+  $('starBtn').onclick = toggleStarSelected;
+  $('teamSpaceBtn').onclick = toggleTeamSpaceSelected;
   $('deleteForeverBtn').onclick = deleteForever;
   $('clearBinBtn').onclick = clearBin;
 
@@ -623,7 +850,7 @@ function wire() {
       document.querySelectorAll('.side-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       state.section = btn.dataset.section;
-      state.currentFolder = '';
+      state.currentFolder = btn.dataset.folder || '';
       state.selectedIds = new Set();
       renderGrid();
       renderDetails();

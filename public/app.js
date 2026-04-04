@@ -227,7 +227,11 @@ function localApi(path, options = {}) {
 
   if (path === '/files/trash-batch' && method === 'PATCH') {
     const ids = new Set(body.ids || []);
-    files.forEach((f) => { if (ids.has(f.id) && !f.trashedAt) f.trashedAt = new Date().toISOString(); });
+    const folderPrefixes = files.filter((f) => ids.has(f.id) && f.type === 'folder').map((f) => `${f.name}/`);
+    files.forEach((f) => {
+      const nestedUnderSelectedFolder = folderPrefixes.some((prefix) => f.name.startsWith(prefix));
+      if ((ids.has(f.id) || nestedUnderSelectedFolder) && !f.trashedAt) f.trashedAt = new Date().toISOString();
+    });
     saveFiles(files);
     return { ok: true };
   }
@@ -275,9 +279,14 @@ function localApi(path, options = {}) {
 
   if (path === '/files/delete-batch' && method === 'DELETE') {
     const ids = new Set(body.ids || []);
-    const kept = files.filter((f) => !(ids.has(f.id) && f.trashedAt));
+    const folderPrefixes = files.filter((f) => ids.has(f.id) && f.type === 'folder').map((f) => `${f.name}/`);
+    const kept = files.filter((f) => {
+      const nestedUnderSelectedFolder = folderPrefixes.some((prefix) => f.name.startsWith(prefix));
+      return !((ids.has(f.id) || nestedUnderSelectedFolder) && f.trashedAt);
+    });
     saveFiles(kept);
     [...ids].forEach((id) => localBlobMap.delete(id));
+    files.filter((f) => folderPrefixes.some((prefix) => f.name.startsWith(prefix))).forEach((f) => localBlobMap.delete(f.id));
     return { ok: true };
   }
 

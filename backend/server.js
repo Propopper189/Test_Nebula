@@ -251,8 +251,12 @@ app.patch('/api/files/trash-batch', auth, (req, res) => {
 
   const set = new Set(ids);
   const files = ensureUserFiles(req.userEmail);
+  const folderPrefixes = files
+    .filter((item) => set.has(item.id) && item.type === 'folder')
+    .map((item) => `${item.name}/`);
   files.forEach((item) => {
-    if (set.has(item.id) && !item.trashedAt) item.trashedAt = new Date().toISOString();
+    const nestedUnderSelectedFolder = folderPrefixes.some((prefix) => item.name.startsWith(prefix));
+    if ((set.has(item.id) || nestedUnderSelectedFolder) && !item.trashedAt) item.trashedAt = new Date().toISOString();
   });
   saveDb();
   res.json({ ok: true });
@@ -312,8 +316,12 @@ app.delete('/api/files/delete-batch', auth, (req, res) => {
   if (!ids.size) return res.status(400).json({ message: 'ids are required.' });
 
   const files = ensureUserFiles(req.userEmail);
+  const folderPrefixes = files
+    .filter((item) => ids.has(item.id) && item.type === 'folder')
+    .map((item) => `${item.name}/`);
   db.filesByUser[req.userEmail] = files.filter((item) => {
-    if (!ids.has(item.id)) return true;
+    const nestedUnderSelectedFolder = folderPrefixes.some((prefix) => item.name.startsWith(prefix));
+    if (!ids.has(item.id) && !nestedUnderSelectedFolder) return true;
     if (!item.trashedAt) return true;
     removeBinary(item.id);
     return false;

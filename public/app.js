@@ -16,6 +16,7 @@ const state = {
   selectedIds: new Set(),
   view: 'grid',
   uploadProgress: { active: false, percent: 0, uploadedBytes: 0, totalBytes: 0, uploadedFiles: 0, totalFiles: 0 },
+  recents: [],
 };
 
 const localBlobMap = new Map();
@@ -25,6 +26,29 @@ const localKey = {
   session: 'nebula_local_session',
   files: (email) => `nebula_local_files_${email}`,
 };
+
+function recentsKey() {
+  return `nebula:recents:${(state.user || 'anon').toLowerCase()}`;
+}
+
+function loadRecents() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(recentsKey()) || '[]');
+    state.recents = Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+  } catch {
+    state.recents = [];
+  }
+}
+
+function saveRecents() {
+  localStorage.setItem(recentsKey(), JSON.stringify(state.recents.slice(0, 200)));
+}
+
+function recordRecent(id) {
+  if (!id) return;
+  state.recents = [id, ...state.recents.filter((itemId) => itemId !== id)].slice(0, 200);
+  saveRecents();
+}
 
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB` : `${(n / 1024 ** 2).toFixed(2)} MB`);
@@ -336,7 +360,9 @@ function currentList() {
       return !name.slice(prefix.length).includes('/');
     });
   } else if (state.section === 'recents') {
-    scoped = [...source].sort((a, b) => new Date(b.createdAt || b.modified || 0) - new Date(a.createdAt || a.modified || 0));
+    const allItems = [...state.files.filter((f) => !f.trashedAt), ...state.sharedFiles.filter((f) => !f.trashedAt)];
+    const byId = new Map(allItems.map((item) => [item.id, item]));
+    scoped = state.recents.map((id) => byId.get(id)).filter(Boolean);
   } else if (state.section === 'starred') {
     scoped = source.filter((f) => !!f.starred);
   }
@@ -453,15 +479,19 @@ function renderGrid() {
     }
 
     row.ondblclick = () => {
-      if (state.section === 'drive' && item?.type === 'folder') {
+      if (['drive', 'recents', 'starred'].includes(state.section) && item?.type === 'folder') {
         state.currentFolder = normalizePath(item.name);
+        state.section = 'drive';
+        document.querySelectorAll('.side-btn').forEach((b) => b.classList.toggle('active', b.dataset.section === 'drive' && !b.dataset.folder));
         state.selectedIds = new Set();
+        recordRecent(id);
         renderGrid();
         renderDetails();
       }
     };
 
     row.onclick = (e) => {
+      recordRecent(id);
       if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
         const alreadyOnly = state.selectedIds.size === 1 && state.selectedIds.has(id);
         state.selectedIds = alreadyOnly ? new Set() : new Set([id]);
@@ -490,6 +520,10 @@ async function loadDrive() {
   const [filesResp, sharedResp] = await Promise.all([api('/files'), api('/files/shared')]);
   state.files = filesResp.files;
   state.sharedFiles = sharedResp.files;
+  loadRecents();
+  const validIds = new Set([...state.files, ...state.sharedFiles].map((item) => item.id));
+  state.recents = state.recents.filter((id) => validIds.has(id));
+  saveRecents();
   state.selectedIds = new Set();
   $('currentUser').textContent = state.user;
   $('accountEmail').textContent = state.user;

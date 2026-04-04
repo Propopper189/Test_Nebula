@@ -8,7 +8,7 @@ const multer = require('multer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const STORAGE_LIMIT_BYTES = 10 * 1024 * 1024 * 1024;
-const RETENTION_MS = 15 * 24 * 60 * 60 * 1000;
+const AUTO_DELETE_MS = 3 * 24 * 60 * 60 * 1000;
 const uploadDir = path.join(__dirname, '..', 'uploads');
 const dbPath = path.join(__dirname, 'data.json');
 fs.mkdirSync(uploadDir, { recursive: true });
@@ -49,6 +49,7 @@ function ensureUserFiles(email) {
 }
 
 function getUsedBytes(email) {
+  purgeExpired(email);
   return ensureUserFiles(email)
     .filter((item) => !item.trashedAt)
     .reduce((acc, item) => acc + (item.size || 0), 0);
@@ -62,13 +63,13 @@ function removeBinary(fileId) {
   delete db.blobs[fileId];
 }
 
-function purgeTrash(email) {
+function purgeExpired(email) {
   const now = Date.now();
   const files = ensureUserFiles(email);
   const kept = [];
   let changed = false;
   for (const item of files) {
-    if (item.trashedAt && now - new Date(item.trashedAt).getTime() > RETENTION_MS) {
+    if (item.createdAt && now - new Date(item.createdAt).getTime() > AUTO_DELETE_MS) {
       removeBinary(item.id);
       changed = true;
       continue;
@@ -151,13 +152,15 @@ app.delete('/api/account', auth, (req, res) => {
 });
 
 app.get('/api/files', auth, (req, res) => {
-  const files = purgeTrash(req.userEmail);
+  const files = purgeExpired(req.userEmail);
   res.json({ files });
 });
 
 app.get('/api/files/shared', auth, (req, res) => {
   const shared = [];
-  for (const [owner, records] of Object.entries(db.filesByUser)) {
+  purgeExpired(req.userEmail);
+  for (const [owner] of Object.entries(db.filesByUser)) {
+    const records = purgeExpired(owner);
     if (owner === req.userEmail) continue;
     records.forEach((item) => {
       if (!item.trashedAt && (item.sharedWith || []).includes(req.userEmail)) {
@@ -168,8 +171,21 @@ app.get('/api/files/shared', auth, (req, res) => {
   res.json({ files: shared });
 });
 
+app.get('/api/files/team-space', auth, (req, res) => {
+  const visible = [];
+  for (const [owner, records] of Object.entries(db.filesByUser)) {
+    const ownerRecords = purgeExpired(owner, records);
+    ownerRecords.forEach((item) => {
+      if (!item.trashedAt && item.teamSpace) {
+        visible.push({ ...item, owner });
+      }
+    });
+  }
+  res.json({ files: visible });
+});
+
 app.post('/api/files', auth, (req, res) => {
-  const { name, type, size = 0, parentPath = '' } = req.body || {};
+  const { name, type, size = 0, parentPath = '', teamSpace = false } = req.body || {};
   if (!name || !type) return res.status(400).json({ message: 'name and type are required.' });
   const parsedSize = Number(size || 0);
 
@@ -185,6 +201,10 @@ app.post('/api/files', auth, (req, res) => {
     modified: new Date().toISOString().slice(0, 10),
     sharedWith: [],
     trashedAt: null,
+    createdAt: new Date().toISOString(),
+    starred: false,
+    teamSpace: !!teamSpace,
+    archived: false,
   };
   ensureUserFiles(req.userEmail).unshift(item);
   saveDb();
@@ -208,6 +228,10 @@ app.post('/api/upload', auth, upload.single('file'), (req, res) => {
     modified: new Date().toISOString().slice(0, 10),
     sharedWith: [],
     trashedAt: null,
+    createdAt: new Date().toISOString(),
+    starred: false,
+    teamSpace: req.body?.teamSpace === 'true' || req.body?.teamSpace === true,
+    archived: false,
     mimeType: req.file.mimetype || 'application/octet-stream',
   };
 
@@ -247,6 +271,42 @@ app.patch('/api/files/:id/share', auth, (req, res) => {
   res.json(file);
 });
 
+app.patch('/api/files/:id/star', auth, (req, res) => {
+  const files = ensureUserFiles(req.userEmail);
+  const file = files.find((f) => f.id === req.params.id);
+  if (!file) return res.status(404).json({ message: 'File not found.' });
+  if (file.trashedAt) return res.status(400).json({ message: 'Cannot star items in trash.' });
+
+  const next = typeof req.body?.starred === 'boolean' ? req.body.starred : !file.starred;
+  file.starred = next;
+  saveDb();
+  res.json(file);
+});
+
+app.patch('/api/files/:id/team-space', auth, (req, res) => {
+  const files = ensureUserFiles(req.userEmail);
+  const file = files.find((f) => f.id === req.params.id);
+  if (!file) return res.status(404).json({ message: 'File not found.' });
+  if (file.trashedAt) return res.status(400).json({ message: 'Cannot add trash items to Team Space.' });
+
+  const next = typeof req.body?.teamSpace === 'boolean' ? req.body.teamSpace : !file.teamSpace;
+  file.teamSpace = next;
+  saveDb();
+  res.json(file);
+});
+
+app.patch('/api/files/:id/archive', auth, (req, res) => {
+  const files = ensureUserFiles(req.userEmail);
+  const file = files.find((f) => f.id === req.params.id);
+  if (!file) return res.status(404).json({ message: 'File not found.' });
+  if (file.trashedAt) return res.status(400).json({ message: 'Cannot archive items in trash.' });
+
+  const next = typeof req.body?.archived === 'boolean' ? req.body.archived : !file.archived;
+  file.archived = next;
+  saveDb();
+  res.json(file);
+});
+
 app.delete('/api/files/delete-batch', auth, (req, res) => {
   const ids = new Set(Array.isArray(req.body?.ids) ? req.body.ids : []);
   if (!ids.size) return res.status(400).json({ message: 'ids are required.' });
@@ -274,11 +334,13 @@ app.delete('/api/files/trash/clear', auth, (req, res) => {
 });
 
 app.get('/api/files/:id/download', auth, (req, res) => {
+  purgeExpired(req.userEmail);
   let file = ensureUserFiles(req.userEmail).find((f) => f.id === req.params.id);
   if (!file) {
     for (const [owner, records] of Object.entries(db.filesByUser)) {
       if (owner === req.userEmail) continue;
-      const shared = records.find((f) => f.id === req.params.id && !f.trashedAt && (f.sharedWith || []).includes(req.userEmail));
+      const ownerRecords = purgeExpired(owner);
+      const shared = ownerRecords.find((f) => f.id === req.params.id && !f.trashedAt && (f.sharedWith || []).includes(req.userEmail));
       if (shared) {
         file = shared;
         break;

@@ -1,5 +1,6 @@
 const API = '/api';
 const LIMIT = 10 * 1024 * 1024 * 1024;
+const AUTO_DELETE_MS = 3 * 24 * 60 * 60 * 1000;
 const IS_FILE_MODE = location.protocol === 'file:';
 const DEV_API_ORIGIN = localStorage.getItem('nebula_api_origin') || 'http://localhost:3000';
 const IS_LOCALHOST = ['localhost', '127.0.0.1'].includes(location.hostname);
@@ -10,9 +11,14 @@ const state = {
   user: localStorage.getItem('nebula_user') || '',
   files: [],
   sharedFiles: [],
+  teamFiles: [],
   section: 'drive',
   currentFolder: '',
   selectedIds: new Set(),
+  view: 'grid',
+  uploadProgress: { active: false, percent: 0, uploadedBytes: 0, totalBytes: 0, uploadedFiles: 0, totalFiles: 0 },
+  deleteProgress: { active: false, percent: 0, deletedBytes: 0, totalBytes: 0, deletedItems: 0, totalItems: 0 },
+  recents: [],
 };
 
 const localBlobMap = new Map();
@@ -23,9 +29,62 @@ const localKey = {
   files: (email) => `nebula_local_files_${email}`,
 };
 
+function recentsKey() {
+  return `nebula:recents:${(state.user || 'anon').toLowerCase()}`;
+}
+
+function loadRecents() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(recentsKey()) || '[]');
+    state.recents = Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+  } catch {
+    state.recents = [];
+  }
+}
+
+function saveRecents() {
+  localStorage.setItem(recentsKey(), JSON.stringify(state.recents.slice(0, 200)));
+}
+
+function recordRecent(id) {
+  if (!id) return;
+  state.recents = [id, ...state.recents.filter((itemId) => itemId !== id)].slice(0, 200);
+  saveRecents();
+}
+
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB` : `${(n / 1024 ** 2).toFixed(2)} MB`);
+const toMB = (n) => `${(Number(n || 0) / (1024 ** 2)).toFixed(2)} MB`;
 const initials = (email) => (email || 'U').split('@')[0].slice(0, 2).toUpperCase();
+
+const fileTypeColor = {
+  folder: '#f7c948',
+  pdf: '#ff5a62',
+  doc: '#7b6ef6',
+  file: '#7b6ef6',
+  image: '#3ecfcf',
+  video: '#7b6ef6',
+  sheet: '#3ecfcf',
+  zip: '#888888',
+};
+
+const iconSVG = {
+  pdf: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="{c}"/><path d="M5 5h6M5 7.5h6M5 10h4" stroke="{c}" stroke-linecap="round"/></svg>`,
+  doc: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="{c}"/><path d="M5 5h6M5 7.5h6M5 10h4" stroke="{c}" stroke-linecap="round"/></svg>`,
+  sheet: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="2" y="2" width="12" height="12" rx="1.5" stroke="{c}"/><path d="M2 6h12M6 2v12" stroke="{c}"/></svg>`,
+  image: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="2" y="2" width="12" height="12" rx="2" stroke="{c}"/><circle cx="6" cy="6" r="1.5" stroke="{c}"/><path d="M2 11l3-3 2 2 2-2 4 4" stroke="{c}" stroke-linecap="round"/></svg>`,
+  video: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="2" y="3" width="10" height="10" rx="1.5" stroke="{c}"/><path d="M12 6l2.5-2v8L12 10" stroke="{c}" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  folder: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><path d="M1 5a2 2 0 012-2h2.5l2 2H13a2 2 0 012 2v5a2 2 0 01-2 2H3a2 2 0 01-2-2V5z" stroke="{c}"/></svg>`,
+  zip: `<svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" style="width:28px;height:28px"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="{c}"/><path d="M7 1v6M9 1v6M6 7h4v2H6z" stroke="{c}" stroke-linecap="round"/></svg>`,
+};
+
+function iconFor(item, size = 28) {
+  const type = item.type === 'folder' ? 'folder' : (item.name.split('.').pop() || item.type || 'doc').toLowerCase();
+  const normalized = (type === 'jpg' || type === 'jpeg' || type === 'png' || type === 'gif') ? 'image' : (type === 'mp4' ? 'video' : (type === 'xlsx' || type === 'csv' ? 'sheet' : type));
+  const key = iconSVG[normalized] ? normalized : (item.type === 'folder' ? 'folder' : 'doc');
+  const color = fileTypeColor[key] || '#7b6ef6';
+  return iconSVG[key].replace(/{c}/g, color).replace(/28px/g, `${size}px`);
+}
 
 function toast(msg) {
   const t = $('toast');
@@ -119,7 +178,7 @@ function localApi(path, options = {}) {
 
   if (path === '/files' && method === 'GET') {
     const now = Date.now();
-    const clean = files.filter((item) => !(item.trashedAt && now - new Date(item.trashedAt).getTime() > 15 * 24 * 60 * 60 * 1000));
+    const clean = files.filter((item) => !(item.createdAt && now - new Date(item.createdAt).getTime() > AUTO_DELETE_MS));
     saveFiles(clean);
     return { files: clean };
   }
@@ -135,6 +194,16 @@ function localApi(path, options = {}) {
     return { files: shared };
   }
 
+  if (path === '/files/team-space' && method === 'GET') {
+    const team = [];
+    users.forEach((user) => {
+      readJson(localKey.files(user.email), []).forEach((item) => {
+        if (!item.trashedAt && item.teamSpace) team.push({ ...item, owner: user.email });
+      });
+    });
+    return { files: team };
+  }
+
   if (path === '/files' && method === 'POST') {
     const used = files.filter((f) => !f.trashedAt).reduce((a, b) => a + (b.size || 0), 0);
     if (used + Number(body.size || 0) > LIMIT) throw new Error('Storage limit exceeded. Upload would exceed 10 GB.');
@@ -146,6 +215,10 @@ function localApi(path, options = {}) {
       modified: new Date().toISOString().slice(0, 10),
       sharedWith: [],
       trashedAt: null,
+      createdAt: new Date().toISOString(),
+      starred: false,
+      teamSpace: !!body.teamSpace,
+      archived: false,
     };
     files.unshift(item);
     saveFiles(files);
@@ -154,7 +227,11 @@ function localApi(path, options = {}) {
 
   if (path === '/files/trash-batch' && method === 'PATCH') {
     const ids = new Set(body.ids || []);
-    files.forEach((f) => { if (ids.has(f.id) && !f.trashedAt) f.trashedAt = new Date().toISOString(); });
+    const folderPrefixes = files.filter((f) => ids.has(f.id) && f.type === 'folder').map((f) => `${f.name}/`);
+    files.forEach((f) => {
+      const nestedUnderSelectedFolder = folderPrefixes.some((prefix) => f.name.startsWith(prefix));
+      if ((ids.has(f.id) || nestedUnderSelectedFolder) && !f.trashedAt) f.trashedAt = new Date().toISOString();
+    });
     saveFiles(files);
     return { ok: true };
   }
@@ -170,11 +247,46 @@ function localApi(path, options = {}) {
     return item;
   }
 
+  if (path.startsWith('/files/') && path.endsWith('/star') && method === 'PATCH') {
+    const id = path.split('/')[2];
+    const item = files.find((f) => f.id === id);
+    if (!item) throw new Error('File not found.');
+    if (item.trashedAt) throw new Error('Cannot star items in trash.');
+    item.starred = typeof body.starred === 'boolean' ? body.starred : !item.starred;
+    saveFiles(files);
+    return item;
+  }
+
+  if (path.startsWith('/files/') && path.endsWith('/team-space') && method === 'PATCH') {
+    const id = path.split('/')[2];
+    const item = files.find((f) => f.id === id);
+    if (!item) throw new Error('File not found.');
+    if (item.trashedAt) throw new Error('Cannot add trash items to Team Space.');
+    item.teamSpace = typeof body.teamSpace === 'boolean' ? body.teamSpace : !item.teamSpace;
+    saveFiles(files);
+    return item;
+  }
+
+  if (path.startsWith('/files/') && path.endsWith('/archive') && method === 'PATCH') {
+    const id = path.split('/')[2];
+    const item = files.find((f) => f.id === id);
+    if (!item) throw new Error('File not found.');
+    if (item.trashedAt) throw new Error('Cannot archive items in trash.');
+    item.archived = typeof body.archived === 'boolean' ? body.archived : !item.archived;
+    saveFiles(files);
+    return item;
+  }
+
   if (path === '/files/delete-batch' && method === 'DELETE') {
     const ids = new Set(body.ids || []);
-    const kept = files.filter((f) => !(ids.has(f.id) && f.trashedAt));
+    const folderPrefixes = files.filter((f) => ids.has(f.id) && f.type === 'folder').map((f) => `${f.name}/`);
+    const kept = files.filter((f) => {
+      const nestedUnderSelectedFolder = folderPrefixes.some((prefix) => f.name.startsWith(prefix));
+      return !((ids.has(f.id) || nestedUnderSelectedFolder) && f.trashedAt);
+    });
     saveFiles(kept);
     [...ids].forEach((id) => localBlobMap.delete(id));
+    files.filter((f) => folderPrefixes.some((prefix) => f.name.startsWith(prefix))).forEach((f) => localBlobMap.delete(f.id));
     return { ok: true };
   }
 
@@ -189,6 +301,7 @@ function localApi(path, options = {}) {
   if (path === '/upload' && method === 'POST' && body instanceof FormData) {
     const file = body.get('file');
     const parentPath = body.get('parentPath') || '';
+    const teamSpace = body.get('teamSpace') === 'true';
     if (!(file instanceof File)) throw new Error('file is required.');
     const used = files.filter((f) => !f.trashedAt).reduce((a, b) => a + (b.size || 0), 0);
     if (used + file.size > LIMIT) throw new Error('Storage limit exceeded. Upload would exceed 10 GB.');
@@ -200,6 +313,10 @@ function localApi(path, options = {}) {
       modified: new Date().toISOString().slice(0, 10),
       sharedWith: [],
       trashedAt: null,
+      createdAt: new Date().toISOString(),
+      starred: false,
+      teamSpace,
+      archived: false,
     };
     files.unshift(item);
     saveFiles(files);
@@ -248,6 +365,7 @@ async function signOut() {
   state.user = '';
   state.files = [];
   state.sharedFiles = [];
+  state.teamFiles = [];
   state.selectedIds = new Set();
   localStorage.removeItem('nebula_token');
   localStorage.removeItem('nebula_user');
@@ -275,9 +393,11 @@ function basename(path) {
 }
 
 function currentList() {
-  const source = state.section === 'shared'
-    ? state.sharedFiles
-    : state.files.filter((f) => (state.section === 'trash' ? !!f.trashedAt : !f.trashedAt));
+  let source;
+  if (state.section === 'shared') source = state.sharedFiles;
+  else if (state.section === 'archive') source = state.files.filter((f) => !f.trashedAt && !!f.archived);
+  else if (state.section === 'trash') source = state.files.filter((f) => !!f.trashedAt);
+  else source = state.files.filter((f) => !f.trashedAt && !f.archived);
 
   let scoped = source;
   if (state.section === 'drive') {
@@ -288,6 +408,14 @@ function currentList() {
       if (!name.startsWith(prefix)) return false;
       return !name.slice(prefix.length).includes('/');
     });
+  } else if (state.section === 'recents') {
+    const allItems = [...state.files.filter((f) => !f.trashedAt && !f.archived), ...state.sharedFiles.filter((f) => !f.trashedAt)];
+    const byId = new Map(allItems.map((item) => [item.id, item]));
+    scoped = state.recents.map((id) => byId.get(id)).filter(Boolean);
+  } else if (state.section === 'team') {
+    scoped = state.teamFiles.filter((f) => !f.trashedAt && !f.archived);
+  } else if (state.section === 'starred') {
+    scoped = source.filter((f) => !!f.starred);
   }
 
   const q = $('searchInput').value.trim().toLowerCase();
@@ -313,9 +441,13 @@ function renderDetails() {
   $('detailsBox').classList.toggle('hidden', items.length === 0);
 
   $('selectionCount').textContent = items.length ? `${items.length} selected` : 'No selection';
-  $('shareBtn').disabled = !(items.length === 1 && state.section === 'drive');
+  $('shareBtn').disabled = !(items.length === 1 && !['trash','shared'].includes(state.section));
   $('downloadBtn').disabled = !(items.length === 1 && single?.type !== 'folder' && state.section !== 'trash');
-  $('trashBtn').disabled = !(items.length > 0 && state.section === 'drive');
+  $('trashBtn').disabled = !(items.length > 0 && state.section !== 'trash');
+  $('archiveBtn').disabled = !(items.length > 0 && !['shared', 'trash', 'team'].includes(state.section));
+  $('archiveBtn').textContent = state.section === 'archive' ? 'Unarchive' : 'Archive';
+  $('starBtn').disabled = !(items.length > 0 && !['shared', 'trash'].includes(state.section));
+  $('teamSpaceBtn').disabled = !(items.length > 0 && !['shared', 'trash', 'team'].includes(state.section));
   $('deleteForeverBtn').disabled = !(items.length > 0 && state.section === 'trash');
   $('clearBinBtn').classList.toggle('hidden', state.section !== 'trash');
 
@@ -343,70 +475,129 @@ function renderStorage() {
   $('accountStorage').textContent = `${fmt(used)} of ${fmt(LIMIT)} used`;
 }
 
+function renderUploadProgress() {
+  const box = $('uploadProgressBox');
+  const bar = $('uploadProgressBar');
+  const text = $('uploadProgressText');
+  const p = state.uploadProgress;
+  box.classList.toggle('hidden', !p.active);
+  if (!p.active) return;
+  bar.style.width = `${p.percent}%`;
+  text.textContent = `${p.percent}% · ${toMB(p.uploadedBytes)} / ${toMB(p.totalBytes)} · ${p.uploadedFiles}/${p.totalFiles} files`;
+}
+
+function renderDeleteProgress() {
+  const box = $('deleteProgressBox');
+  const bar = $('deleteProgressBar');
+  const text = $('deleteProgressText');
+  const p = state.deleteProgress;
+  box.classList.toggle('hidden', !p.active);
+  if (!p.active) return;
+  bar.style.width = `${p.percent}%`;
+  text.textContent = `${p.percent}% · ${toMB(p.deletedBytes)} / ${toMB(p.totalBytes)} · ${p.deletedItems}/${p.totalItems} files`;
+}
+
 function renderGrid() {
   const list = currentList();
   const grid = $('grid');
-  grid.innerHTML = '';
   $('empty').classList.toggle('hidden', list.length > 0);
 
-  list.forEach((item) => {
-    const row = document.createElement('article');
-    row.className = `card${state.selectedIds.has(item.id) ? ' active' : ''}`;
-    const owner = state.section === 'shared' ? (item.owner || 'shared') : 'you';
-    row.innerHTML = `
-      <div class="file-name-cell">
-        <input type="checkbox" class="row-check" ${state.selectedIds.has(item.id) ? 'checked' : ''}>
-        <span class="file-icon">${item.type === 'folder' ? '📁' : '📄'}</span>
-        <strong>${basename(item.name)}</strong>
-      </div>
-      <div>${owner}</div>
-      <div>${item.modified || '-'}</div>
-      <div>${item.type === 'folder' ? '--' : fmt(item.size || 0)}</div>
-    `;
+  if (state.view === 'grid') {
+    grid.className = 'files-grid';
+    grid.innerHTML = list.map((item) => {
+      const selected = state.selectedIds.has(item.id);
+      const label = basename(item.name);
+      return `
+        <article class="file-card${selected ? ' selected' : ''}" data-id="${item.id}">
+          <div class="fc-thumb">${iconFor(item)}</div>
+          <div class="fc-name">${label}</div>
+          <div class="fc-meta">${item.type === 'folder' ? '--' : fmt(item.size || 0)} · ${item.modified || '-'}</div>
+        </article>`;
+    }).join('');
+  } else {
+    grid.className = 'files-list';
+    grid.innerHTML = list.map((item) => {
+      const selected = state.selectedIds.has(item.id);
+      const owner = state.section === 'shared' ? (item.owner || 'shared') : 'you';
+      return `
+        <article class="list-row${selected ? ' selected' : ''}" data-id="${item.id}">
+          <div class="lr-name"><input type="checkbox" class="row-check" ${selected ? 'checked' : ''}><span class="mini-icon">${iconFor(item, 15)}</span><strong>${basename(item.name)}</strong></div>
+          <div class="lr-size">${owner}</div>
+          <div class="lr-date">${item.modified || '-'}</div>
+          <div class="lr-type">${item.type === 'folder' ? '--' : fmt(item.size || 0)}</div>
+        </article>`;
+    }).join('');
+  }
 
-    row.querySelector('.row-check').onclick = (e) => {
-      e.stopPropagation();
-      toggleSelect(item.id, e.target.checked);
-      renderGrid();
-      renderDetails();
-    };
+  grid.querySelectorAll('[data-id]').forEach((row) => {
+    const id = row.getAttribute('data-id');
+    const item = list.find((f) => f.id === id);
+    const checkbox = row.querySelector('.row-check');
+
+    if (checkbox) {
+      checkbox.onclick = (e) => {
+        e.stopPropagation();
+        toggleSelect(id, e.target.checked);
+        renderGrid();
+        renderDetails();
+      };
+    }
 
     row.ondblclick = () => {
-      if (state.section === 'drive' && item.type === 'folder') {
+      if (['drive', 'recents', 'starred'].includes(state.section) && item?.type === 'folder') {
         state.currentFolder = normalizePath(item.name);
+        state.section = 'drive';
+        document.querySelectorAll('.side-btn').forEach((b) => b.classList.toggle('active', b.dataset.section === 'drive' && !b.dataset.folder));
         state.selectedIds = new Set();
+        recordRecent(id);
         renderGrid();
         renderDetails();
       }
     };
 
     row.onclick = (e) => {
+      recordRecent(id);
       if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        const alreadyOnly = state.selectedIds.size === 1 && state.selectedIds.has(item.id);
-        state.selectedIds = alreadyOnly ? new Set() : new Set([item.id]);
+        const alreadyOnly = state.selectedIds.size === 1 && state.selectedIds.has(id);
+        state.selectedIds = alreadyOnly ? new Set() : new Set([id]);
       } else {
-        toggleSelect(item.id);
+        toggleSelect(id);
       }
       renderGrid();
       renderDetails();
     };
-    grid.appendChild(row);
   });
 
-  $('folderPathLabel').textContent = state.currentFolder ? `My Drive / ${state.currentFolder}` : 'My Drive';
+  $('grid-btn').classList.toggle('active', state.view === 'grid');
+  $('list-btn').classList.toggle('active', state.view === 'list');
+  $('folderPathLabel').textContent = state.currentFolder || 'All Files';
   $('folderUpBtn').disabled = !(state.section === 'drive' && state.currentFolder);
 
   renderStorage();
-  const readonly = state.section === 'shared';
+  renderUploadProgress();
+  renderDeleteProgress();
+  const readonly = state.section === 'shared' || state.section === 'trash' || state.section === 'archive';
   $('uploadFileBtn').disabled = readonly;
   $('uploadFolderBtn').disabled = readonly;
   $('newFolderBtn').disabled = readonly;
 }
 
 async function loadDrive() {
-  const [filesResp, sharedResp] = await Promise.all([api('/files'), api('/files/shared')]);
-  state.files = filesResp.files;
-  state.sharedFiles = sharedResp.files;
+  const [filesResult, sharedResult, teamResult] = await Promise.allSettled([api('/files'), api('/files/shared'), api('/files/team-space')]);
+  if (filesResult.status !== 'fulfilled') throw filesResult.reason;
+  if (sharedResult.status !== 'fulfilled') throw sharedResult.reason;
+
+  const filesResp = filesResult.value || {};
+  const sharedResp = sharedResult.value || {};
+  const teamResp = teamResult.status === 'fulfilled' ? (teamResult.value || {}) : {};
+
+  state.files = Array.isArray(filesResp.files) ? filesResp.files : [];
+  state.sharedFiles = Array.isArray(sharedResp.files) ? sharedResp.files : [];
+  state.teamFiles = Array.isArray(teamResp.files) ? teamResp.files : [];
+  loadRecents();
+  const validIds = new Set([...state.files, ...state.sharedFiles, ...state.teamFiles].map((item) => item.id));
+  state.recents = state.recents.filter((id) => validIds.has(id));
+  saveRecents();
   state.selectedIds = new Set();
   $('currentUser').textContent = state.user;
   $('accountEmail').textContent = state.user;
@@ -415,6 +606,34 @@ async function loadDrive() {
   $('drivePage').classList.remove('hidden');
   renderGrid();
   renderDetails();
+}
+
+function uploadSingleFileWithProgress(file, parentPath, onProgress, teamSpace = false) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', apiBase('/upload'));
+    if (state.token) xhr.setRequestHeader('Authorization', `Bearer ${state.token}`);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else {
+        try {
+          const body = JSON.parse(xhr.responseText || '{}');
+          reject(new Error(body.message || 'Upload failed'));
+        } catch {
+          reject(new Error('Upload failed'));
+        }
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    const form = new FormData();
+    form.append('file', file, file.name);
+    form.append('parentPath', parentPath);
+    form.append('teamSpace', teamSpace ? 'true' : 'false');
+    xhr.send(form);
+  });
 }
 
 async function uploadRecords(fileList, isFolder = false) {
@@ -431,11 +650,15 @@ async function uploadRecords(fileList, isFolder = false) {
       for (const segment of relDirs) {
         cursor = normalizePath(cursor ? `${cursor}/${segment}` : segment);
         if (!cursor || existingFolders.has(cursor)) continue;
-        await api('/files', { method: 'POST', body: JSON.stringify({ name: basename(cursor), type: 'folder', size: 0, parentPath: normalizePath(cursor.split('/').slice(0, -1).join('/')) }) });
+        await api('/files', { method: 'POST', body: JSON.stringify({ name: basename(cursor), type: 'folder', size: 0, parentPath: normalizePath(cursor.split('/').slice(0, -1).join('/')), teamSpace: state.section === 'team' }) });
         existingFolders.add(cursor);
       }
     }
   }
+
+  const totalBytes = files.reduce((sum, file) => sum + (file.size || 0), 0);
+  state.uploadProgress = { active: true, percent: 0, uploadedBytes: 0, totalBytes, uploadedFiles: 0, totalFiles: files.length };
+  renderUploadProgress();
 
   let uploaded = 0;
   for (const file of files) {
@@ -447,30 +670,44 @@ async function uploadRecords(fileList, isFolder = false) {
     const relParent = isFolder ? normalizePath((file.webkitRelativePath || '').split('/').slice(0, -1).join('/')) : '';
     const parentPath = normalizePath(state.currentFolder ? `${state.currentFolder}/${relParent}` : relParent || state.currentFolder);
 
+    const alreadyUploaded = state.uploadProgress.uploadedBytes;
     if (IS_FILE_MODE) {
       const created = await api('/files', {
         method: 'POST',
-        body: JSON.stringify({ name: file.name, type: 'file', size: file.size, parentPath }),
+        body: JSON.stringify({ name: file.name, type: 'file', size: file.size, parentPath, teamSpace: state.section === 'team' }),
       });
       localBlobMap.set(created.id, file);
+      state.uploadProgress.uploadedBytes = alreadyUploaded + file.size;
     } else {
-      const form = new FormData();
-      form.append('file', file, file.name);
-      form.append('parentPath', parentPath);
-      await api('/upload', { method: 'POST', body: form });
+      await uploadSingleFileWithProgress(file, parentPath, (loadedBytes) => {
+        state.uploadProgress.uploadedBytes = alreadyUploaded + loadedBytes;
+        state.uploadProgress.percent = totalBytes ? Math.min(100, Math.round((state.uploadProgress.uploadedBytes / totalBytes) * 100)) : 100;
+        renderUploadProgress();
+      }, state.section === 'team');
+      state.uploadProgress.uploadedBytes = alreadyUploaded + file.size;
     }
 
+    state.uploadProgress.uploadedFiles += 1;
+    state.uploadProgress.percent = totalBytes ? Math.min(100, Math.round((state.uploadProgress.uploadedBytes / totalBytes) * 100)) : 100;
+    renderUploadProgress();
     used += file.size;
     uploaded += 1;
   }
+
   await loadDrive();
+  state.uploadProgress.percent = 100;
+  renderUploadProgress();
+  setTimeout(() => {
+    state.uploadProgress.active = false;
+    renderUploadProgress();
+  }, 1200);
   toast(uploaded ? `Uploaded ${uploaded} item(s).` : 'Nothing uploaded.');
 }
 
 async function createFolder() {
   const name = prompt('Folder name', 'New Folder');
   if (!name) return;
-  await api('/files', { method: 'POST', body: JSON.stringify({ name, type: 'folder', size: 0, parentPath: state.currentFolder }) });
+  await api('/files', { method: 'POST', body: JSON.stringify({ name, type: 'folder', size: 0, parentPath: state.currentFolder, teamSpace: state.section === 'team' }) });
   await loadDrive();
   toast('Folder created.');
 }
@@ -482,18 +719,83 @@ async function moveToTrash() {
   toast('Moved selected items to Trash.');
 }
 
+async function toggleStarSelected() {
+  const items = selectedItems();
+  if (!items.length) return;
+  const shouldStar = items.some((item) => !item.starred);
+  await Promise.all(items.map((item) => api(`/files/${item.id}/star`, { method: 'PATCH', body: JSON.stringify({ starred: shouldStar }) })));
+  await loadDrive();
+  toast(shouldStar ? 'Starred.' : 'Unstarred.');
+}
+
+async function toggleArchiveSelected() {
+  const items = selectedItems();
+  if (!items.length) return;
+  const shouldArchive = state.section === 'archive' ? false : items.some((item) => !item.archived);
+  await Promise.all(items.map((item) => api(`/files/${item.id}/archive`, { method: 'PATCH', body: JSON.stringify({ archived: shouldArchive }) })));
+  await loadDrive();
+  toast(shouldArchive ? 'Archived.' : 'Unarchived.');
+}
+
+async function toggleTeamSpaceSelected() {
+  const items = selectedItems();
+  if (!items.length) return;
+  const shouldAdd = items.some((item) => !item.teamSpace);
+  await Promise.all(items.map((item) => api(`/files/${item.id}/team-space`, { method: 'PATCH', body: JSON.stringify({ teamSpace: shouldAdd }) })));
+  await loadDrive();
+  toast(shouldAdd ? 'Added to Team Space.' : 'Removed from Team Space.');
+}
+
+async function deleteWithProgress(ids) {
+  const validIds = ids.filter(Boolean);
+  if (!validIds.length) return 0;
+  const byId = new Map(state.files.map((item) => [item.id, item]));
+  const totalBytes = validIds.reduce((sum, id) => {
+    const root = byId.get(id);
+    if (!root) return sum;
+    if (root.type !== 'folder') return sum + (root.size || 0);
+    const prefix = `${normalizePath(root.name)}/`;
+    return sum + state.files.reduce((acc, item) => acc + (normalizePath(item.name).startsWith(prefix) ? (item.size || 0) : 0), root.size || 0);
+  }, 0);
+  state.deleteProgress = { active: true, percent: 0, deletedBytes: 0, totalBytes, deletedItems: 0, totalItems: validIds.length };
+  renderDeleteProgress();
+
+  let deleted = 0;
+  for (const id of validIds) {
+    const root = byId.get(id);
+    const folderPrefix = root?.type === 'folder' ? `${normalizePath(root.name)}/` : null;
+    const removed = state.files.filter((item) => item.id === id || (folderPrefix && normalizePath(item.name).startsWith(folderPrefix)));
+    await api('/files/delete-batch', { method: 'DELETE', body: JSON.stringify({ ids: [id] }) });
+    state.files = state.files.filter((item) => !removed.some((r) => r.id === item.id));
+    renderStorage();
+    deleted += 1;
+    state.deleteProgress.deletedItems = deleted;
+    state.deleteProgress.deletedBytes += removed.reduce((sum, item) => sum + (item.size || 0), 0);
+    state.deleteProgress.percent = Math.round((deleted / validIds.length) * 100);
+    renderDeleteProgress();
+  }
+
+  await loadDrive();
+  state.deleteProgress.percent = 100;
+  renderDeleteProgress();
+  setTimeout(() => {
+    state.deleteProgress.active = false;
+    renderDeleteProgress();
+  }, 1200);
+  return deleted;
+}
+
 async function deleteForever() {
   if (!state.selectedIds.size || state.section !== 'trash') return;
-  await api('/files/delete-batch', { method: 'DELETE', body: JSON.stringify({ ids: [...state.selectedIds] }) });
-  await loadDrive();
-  toast('Deleted selected items permanently.');
+  const deleted = await deleteWithProgress([...state.selectedIds]);
+  toast(deleted ? 'Deleted selected items permanently.' : 'Nothing deleted.');
 }
 
 async function clearBin() {
   if (state.section !== 'trash') return;
-  await api('/files/trash/clear', { method: 'DELETE' });
-  await loadDrive();
-  toast('Trash cleared.');
+  const ids = state.files.filter((item) => !!item.trashedAt).map((item) => item.id);
+  const deleted = await deleteWithProgress(ids);
+  toast(deleted ? 'Trash cleared.' : 'Trash is already empty.');
 }
 
 function downloadSelected() {
@@ -581,6 +883,8 @@ function wire() {
   $('authSubmit').onclick = submitAuth;
   $('signOutBtn').onclick = signOut;
   $('searchInput').oninput = renderGrid;
+  $('grid-btn').onclick = () => { state.view = 'grid'; renderGrid(); };
+  $('list-btn').onclick = () => { state.view = 'list'; renderGrid(); };
 
   $('uploadFileBtn').onclick = () => $('fileInput').click();
   $('newQuickBtn').onclick = () => $('fileInput').click();
@@ -592,6 +896,9 @@ function wire() {
   $('shareBtn').onclick = openShare;
   $('downloadBtn').onclick = downloadSelected;
   $('trashBtn').onclick = moveToTrash;
+  $('archiveBtn').onclick = toggleArchiveSelected;
+  $('starBtn').onclick = toggleStarSelected;
+  $('teamSpaceBtn').onclick = toggleTeamSpaceSelected;
   $('deleteForeverBtn').onclick = deleteForever;
   $('clearBinBtn').onclick = clearBin;
 
@@ -623,7 +930,7 @@ function wire() {
       document.querySelectorAll('.side-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       state.section = btn.dataset.section;
-      state.currentFolder = '';
+      state.currentFolder = btn.dataset.folder || '';
       state.selectedIds = new Set();
       renderGrid();
       renderDetails();

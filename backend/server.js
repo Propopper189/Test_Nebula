@@ -25,7 +25,7 @@ const upload = multer({
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(path.join(__dirname, '..', 'public'), { index: false }));
 
 function loadDb() {
   if (!fs.existsSync(dbPath)) return { users: {}, filesByUser: {}, blobs: {} };
@@ -366,8 +366,12 @@ app.get('/api/files/:id/download', auth, (req, res) => {
   res.download(blob.filePath, blob.originalName);
 });
 
+app.get('/', (_, res) => {
+  res.sendFile(path.join(__dirname, '..', 'index.html'));
+});
+
 app.get('*', (_, res) => {
-  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, '..', 'index.html'));
 });
 
 app.listen(PORT, () => {

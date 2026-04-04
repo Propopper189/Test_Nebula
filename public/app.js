@@ -750,16 +750,27 @@ async function deleteWithProgress(ids) {
   const validIds = ids.filter(Boolean);
   if (!validIds.length) return 0;
   const byId = new Map(state.files.map((item) => [item.id, item]));
-  const totalBytes = validIds.reduce((sum, id) => sum + (byId.get(id)?.size || 0), 0);
+  const totalBytes = validIds.reduce((sum, id) => {
+    const root = byId.get(id);
+    if (!root) return sum;
+    if (root.type !== 'folder') return sum + (root.size || 0);
+    const prefix = `${normalizePath(root.name)}/`;
+    return sum + state.files.reduce((acc, item) => acc + (normalizePath(item.name).startsWith(prefix) ? (item.size || 0) : 0), root.size || 0);
+  }, 0);
   state.deleteProgress = { active: true, percent: 0, deletedBytes: 0, totalBytes, deletedItems: 0, totalItems: validIds.length };
   renderDeleteProgress();
 
   let deleted = 0;
   for (const id of validIds) {
+    const root = byId.get(id);
+    const folderPrefix = root?.type === 'folder' ? `${normalizePath(root.name)}/` : null;
+    const removed = state.files.filter((item) => item.id === id || (folderPrefix && normalizePath(item.name).startsWith(folderPrefix)));
     await api('/files/delete-batch', { method: 'DELETE', body: JSON.stringify({ ids: [id] }) });
+    state.files = state.files.filter((item) => !removed.some((r) => r.id === item.id));
+    renderStorage();
     deleted += 1;
     state.deleteProgress.deletedItems = deleted;
-    state.deleteProgress.deletedBytes += byId.get(id)?.size || 0;
+    state.deleteProgress.deletedBytes += removed.reduce((sum, item) => sum + (item.size || 0), 0);
     state.deleteProgress.percent = Math.round((deleted / validIds.length) * 100);
     renderDeleteProgress();
   }

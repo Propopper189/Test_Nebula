@@ -141,20 +141,38 @@ function localApi(path, options = {}) {
   const saveFiles = (value) => sessionEmail && localStorage.setItem(localKey.files(sessionEmail), JSON.stringify(value));
 
   if (path === '/auth/signup' && method === 'POST') {
-    if (users.some((u) => u.email === body.email)) throw new Error('Account already exists.');
-    users.push({ email: body.email, password: body.password });
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = String(body.password || '').trim();
+    if (!email || password.length < 6) throw new Error('Email and password (6+ chars) are required.');
+    const existing = users.find((u) => u.email === email);
+    if (existing) {
+      if (!existing.password) existing.password = password;
+      if (existing.password !== password) throw new Error('Account already exists.');
+      saveUsers(users);
+      const token = crypto.randomUUID();
+      localStorage.setItem(localKey.session, JSON.stringify({ email, token }));
+      return { email, token };
+    }
+    users.push({ email, password });
     saveUsers(users);
     const token = crypto.randomUUID();
-    localStorage.setItem(localKey.session, JSON.stringify({ email: body.email, token }));
-    return { email: body.email, token };
+    localStorage.setItem(localKey.session, JSON.stringify({ email, token }));
+    return { email, token };
   }
 
   if (path === '/auth/signin' && method === 'POST') {
-    const user = users.find((u) => u.email === body.email && u.password === body.password);
-    if (!user) throw new Error('Invalid credentials.');
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = String(body.password || '').trim();
+    const user = users.find((u) => u.email === email);
+    if (user && !user.password && password.length >= 6) {
+      user.password = password;
+      saveUsers(users);
+    }
+    const matched = users.find((u) => u.email === email && u.password === password);
+    if (!matched) throw new Error('Invalid credentials.');
     const token = crypto.randomUUID();
-    localStorage.setItem(localKey.session, JSON.stringify({ email: body.email, token }));
-    return { email: body.email, token };
+    localStorage.setItem(localKey.session, JSON.stringify({ email, token }));
+    return { email, token };
   }
 
   if (path === '/auth/signout' && method === 'POST') {

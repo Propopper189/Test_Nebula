@@ -92,13 +92,29 @@ function auth(req, res, next) {
 
 app.post('/api/auth/signup', (req, res) => {
   const { email, password } = req.body || {};
-  if (!email || !password || password.length < 6) {
+  const normalizedPassword = String(password || '').trim();
+  if (!email || !normalizedPassword || normalizedPassword.length < 6) {
     return res.status(400).json({ message: 'Email and password (6+ chars) are required.' });
   }
   const normalized = email.trim().toLowerCase();
-  if (db.users[normalized]) return res.status(409).json({ message: 'Account already exists.' });
+  const existing = db.users[normalized];
+  if (existing) {
+    if (!existing.password) {
+      existing.password = normalizedPassword;
+      saveDb();
+      const token = crypto.randomUUID();
+      sessions.set(token, normalized);
+      return res.json({ token, email: normalized });
+    }
+    if (existing.password === normalizedPassword) {
+      const token = crypto.randomUUID();
+      sessions.set(token, normalized);
+      return res.json({ token, email: normalized });
+    }
+    return res.status(409).json({ message: 'Account already exists.' });
+  }
 
-  db.users[normalized] = { password };
+  db.users[normalized] = { password: normalizedPassword };
   ensureUserFiles(normalized);
   saveDb();
 
@@ -109,9 +125,16 @@ app.post('/api/auth/signup', (req, res) => {
 
 app.post('/api/auth/signin', (req, res) => {
   const { email, password } = req.body || {};
+  const normalizedPassword = String(password || '').trim();
   const normalized = (email || '').trim().toLowerCase();
   const user = db.users[normalized];
-  if (!user || user.password !== password) return res.status(401).json({ message: 'Invalid credentials.' });
+  if (!user) return res.status(401).json({ message: 'Invalid credentials.' });
+  if (!user.password) {
+    if (!normalizedPassword || normalizedPassword.length < 6) return res.status(401).json({ message: 'Invalid credentials.' });
+    user.password = normalizedPassword;
+    saveDb();
+  }
+  if (user.password !== normalizedPassword) return res.status(401).json({ message: 'Invalid credentials.' });
 
   const token = crypto.randomUUID();
   sessions.set(token, normalized);

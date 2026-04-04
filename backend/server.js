@@ -8,7 +8,7 @@ const multer = require('multer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const STORAGE_LIMIT_BYTES = 10 * 1024 * 1024 * 1024;
-const RETENTION_MS = 15 * 24 * 60 * 60 * 1000;
+const AUTO_DELETE_MS = 3 * 24 * 60 * 60 * 1000;
 const uploadDir = path.join(__dirname, '..', 'uploads');
 const dbPath = path.join(__dirname, 'data.json');
 fs.mkdirSync(uploadDir, { recursive: true });
@@ -25,7 +25,7 @@ const upload = multer({
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(path.join(__dirname, '..', 'public'), { index: false }));
 
 function loadDb() {
   if (!fs.existsSync(dbPath)) return { users: {}, filesByUser: {}, blobs: {} };
@@ -49,6 +49,7 @@ function ensureUserFiles(email) {
 }
 
 function getUsedBytes(email) {
+  purgeExpired(email);
   return ensureUserFiles(email)
     .filter((item) => !item.trashedAt)
     .reduce((acc, item) => acc + (item.size || 0), 0);
@@ -62,13 +63,13 @@ function removeBinary(fileId) {
   delete db.blobs[fileId];
 }
 
-function purgeTrash(email) {
+function purgeExpired(email) {
   const now = Date.now();
   const files = ensureUserFiles(email);
   const kept = [];
   let changed = false;
   for (const item of files) {
-    if (item.trashedAt && now - new Date(item.trashedAt).getTime() > RETENTION_MS) {
+    if (item.createdAt && now - new Date(item.createdAt).getTime() > AUTO_DELETE_MS) {
       removeBinary(item.id);
       changed = true;
       continue;
@@ -91,13 +92,29 @@ function auth(req, res, next) {
 
 app.post('/api/auth/signup', (req, res) => {
   const { email, password } = req.body || {};
-  if (!email || !password || password.length < 6) {
+  const normalizedPassword = String(password || '').trim();
+  if (!email || !normalizedPassword || normalizedPassword.length < 6) {
     return res.status(400).json({ message: 'Email and password (6+ chars) are required.' });
   }
   const normalized = email.trim().toLowerCase();
-  if (db.users[normalized]) return res.status(409).json({ message: 'Account already exists.' });
+  const existing = db.users[normalized];
+  if (existing) {
+    if (!existing.password) {
+      existing.password = normalizedPassword;
+      saveDb();
+      const token = crypto.randomUUID();
+      sessions.set(token, normalized);
+      return res.json({ token, email: normalized });
+    }
+    if (existing.password === normalizedPassword) {
+      const token = crypto.randomUUID();
+      sessions.set(token, normalized);
+      return res.json({ token, email: normalized });
+    }
+    return res.status(409).json({ message: 'Account already exists.' });
+  }
 
-  db.users[normalized] = { password };
+  db.users[normalized] = { password: normalizedPassword };
   ensureUserFiles(normalized);
   saveDb();
 
@@ -108,9 +125,16 @@ app.post('/api/auth/signup', (req, res) => {
 
 app.post('/api/auth/signin', (req, res) => {
   const { email, password } = req.body || {};
+  const normalizedPassword = String(password || '').trim();
   const normalized = (email || '').trim().toLowerCase();
   const user = db.users[normalized];
-  if (!user || user.password !== password) return res.status(401).json({ message: 'Invalid credentials.' });
+  if (!user) return res.status(401).json({ message: 'Invalid credentials.' });
+  if (!user.password) {
+    if (!normalizedPassword || normalizedPassword.length < 6) return res.status(401).json({ message: 'Invalid credentials.' });
+    user.password = normalizedPassword;
+    saveDb();
+  }
+  if (user.password !== normalizedPassword) return res.status(401).json({ message: 'Invalid credentials.' });
 
   const token = crypto.randomUUID();
   sessions.set(token, normalized);
@@ -151,13 +175,15 @@ app.delete('/api/account', auth, (req, res) => {
 });
 
 app.get('/api/files', auth, (req, res) => {
-  const files = purgeTrash(req.userEmail);
+  const files = purgeExpired(req.userEmail);
   res.json({ files });
 });
 
 app.get('/api/files/shared', auth, (req, res) => {
   const shared = [];
-  for (const [owner, records] of Object.entries(db.filesByUser)) {
+  purgeExpired(req.userEmail);
+  for (const [owner] of Object.entries(db.filesByUser)) {
+    const records = purgeExpired(owner);
     if (owner === req.userEmail) continue;
     records.forEach((item) => {
       if (!item.trashedAt && (item.sharedWith || []).includes(req.userEmail)) {
@@ -168,8 +194,21 @@ app.get('/api/files/shared', auth, (req, res) => {
   res.json({ files: shared });
 });
 
+app.get('/api/files/team-space', auth, (req, res) => {
+  const visible = [];
+  for (const [owner, records] of Object.entries(db.filesByUser)) {
+    const ownerRecords = purgeExpired(owner, records);
+    ownerRecords.forEach((item) => {
+      if (!item.trashedAt && item.teamSpace) {
+        visible.push({ ...item, owner });
+      }
+    });
+  }
+  res.json({ files: visible });
+});
+
 app.post('/api/files', auth, (req, res) => {
-  const { name, type, size = 0, parentPath = '' } = req.body || {};
+  const { name, type, size = 0, parentPath = '', teamSpace = false } = req.body || {};
   if (!name || !type) return res.status(400).json({ message: 'name and type are required.' });
   const parsedSize = Number(size || 0);
 
@@ -185,6 +224,10 @@ app.post('/api/files', auth, (req, res) => {
     modified: new Date().toISOString().slice(0, 10),
     sharedWith: [],
     trashedAt: null,
+    createdAt: new Date().toISOString(),
+    starred: false,
+    teamSpace: !!teamSpace,
+    archived: false,
   };
   ensureUserFiles(req.userEmail).unshift(item);
   saveDb();
@@ -208,6 +251,10 @@ app.post('/api/upload', auth, upload.single('file'), (req, res) => {
     modified: new Date().toISOString().slice(0, 10),
     sharedWith: [],
     trashedAt: null,
+    createdAt: new Date().toISOString(),
+    starred: false,
+    teamSpace: req.body?.teamSpace === 'true' || req.body?.teamSpace === true,
+    archived: false,
     mimeType: req.file.mimetype || 'application/octet-stream',
   };
 
@@ -227,8 +274,12 @@ app.patch('/api/files/trash-batch', auth, (req, res) => {
 
   const set = new Set(ids);
   const files = ensureUserFiles(req.userEmail);
+  const folderPrefixes = files
+    .filter((item) => set.has(item.id) && item.type === 'folder')
+    .map((item) => `${item.name}/`);
   files.forEach((item) => {
-    if (set.has(item.id) && !item.trashedAt) item.trashedAt = new Date().toISOString();
+    const nestedUnderSelectedFolder = folderPrefixes.some((prefix) => item.name.startsWith(prefix));
+    if ((set.has(item.id) || nestedUnderSelectedFolder) && !item.trashedAt) item.trashedAt = new Date().toISOString();
   });
   saveDb();
   res.json({ ok: true });
@@ -247,13 +298,53 @@ app.patch('/api/files/:id/share', auth, (req, res) => {
   res.json(file);
 });
 
+app.patch('/api/files/:id/star', auth, (req, res) => {
+  const files = ensureUserFiles(req.userEmail);
+  const file = files.find((f) => f.id === req.params.id);
+  if (!file) return res.status(404).json({ message: 'File not found.' });
+  if (file.trashedAt) return res.status(400).json({ message: 'Cannot star items in trash.' });
+
+  const next = typeof req.body?.starred === 'boolean' ? req.body.starred : !file.starred;
+  file.starred = next;
+  saveDb();
+  res.json(file);
+});
+
+app.patch('/api/files/:id/team-space', auth, (req, res) => {
+  const files = ensureUserFiles(req.userEmail);
+  const file = files.find((f) => f.id === req.params.id);
+  if (!file) return res.status(404).json({ message: 'File not found.' });
+  if (file.trashedAt) return res.status(400).json({ message: 'Cannot add trash items to Team Space.' });
+
+  const next = typeof req.body?.teamSpace === 'boolean' ? req.body.teamSpace : !file.teamSpace;
+  file.teamSpace = next;
+  saveDb();
+  res.json(file);
+});
+
+app.patch('/api/files/:id/archive', auth, (req, res) => {
+  const files = ensureUserFiles(req.userEmail);
+  const file = files.find((f) => f.id === req.params.id);
+  if (!file) return res.status(404).json({ message: 'File not found.' });
+  if (file.trashedAt) return res.status(400).json({ message: 'Cannot archive items in trash.' });
+
+  const next = typeof req.body?.archived === 'boolean' ? req.body.archived : !file.archived;
+  file.archived = next;
+  saveDb();
+  res.json(file);
+});
+
 app.delete('/api/files/delete-batch', auth, (req, res) => {
   const ids = new Set(Array.isArray(req.body?.ids) ? req.body.ids : []);
   if (!ids.size) return res.status(400).json({ message: 'ids are required.' });
 
   const files = ensureUserFiles(req.userEmail);
+  const folderPrefixes = files
+    .filter((item) => ids.has(item.id) && item.type === 'folder')
+    .map((item) => `${item.name}/`);
   db.filesByUser[req.userEmail] = files.filter((item) => {
-    if (!ids.has(item.id)) return true;
+    const nestedUnderSelectedFolder = folderPrefixes.some((prefix) => item.name.startsWith(prefix));
+    if (!ids.has(item.id) && !nestedUnderSelectedFolder) return true;
     if (!item.trashedAt) return true;
     removeBinary(item.id);
     return false;
@@ -274,11 +365,13 @@ app.delete('/api/files/trash/clear', auth, (req, res) => {
 });
 
 app.get('/api/files/:id/download', auth, (req, res) => {
+  purgeExpired(req.userEmail);
   let file = ensureUserFiles(req.userEmail).find((f) => f.id === req.params.id);
   if (!file) {
     for (const [owner, records] of Object.entries(db.filesByUser)) {
       if (owner === req.userEmail) continue;
-      const shared = records.find((f) => f.id === req.params.id && !f.trashedAt && (f.sharedWith || []).includes(req.userEmail));
+      const ownerRecords = purgeExpired(owner);
+      const shared = ownerRecords.find((f) => f.id === req.params.id && !f.trashedAt && (f.sharedWith || []).includes(req.userEmail));
       if (shared) {
         file = shared;
         break;
@@ -296,8 +389,12 @@ app.get('/api/files/:id/download', auth, (req, res) => {
   res.download(blob.filePath, blob.originalName);
 });
 
+app.get('/', (_, res) => {
+  res.sendFile(path.join(__dirname, '..', 'index.html'));
+});
+
 app.get('*', (_, res) => {
-  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, '..', 'index.html'));
 });
 
 app.listen(PORT, () => {

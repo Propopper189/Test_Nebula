@@ -17,6 +17,7 @@ const state = {
   selectedIds: new Set(),
   view: 'grid',
   uploadProgress: { active: false, percent: 0, uploadedBytes: 0, totalBytes: 0, uploadedFiles: 0, totalFiles: 0 },
+  deleteProgress: { active: false, percent: 0, deletedBytes: 0, totalBytes: 0, deletedItems: 0, totalItems: 0 },
   recents: [],
 };
 
@@ -476,6 +477,17 @@ function renderUploadProgress() {
   text.textContent = `${p.percent}% · ${toMB(p.uploadedBytes)} / ${toMB(p.totalBytes)} · ${p.uploadedFiles}/${p.totalFiles} files`;
 }
 
+function renderDeleteProgress() {
+  const box = $('deleteProgressBox');
+  const bar = $('deleteProgressBar');
+  const text = $('deleteProgressText');
+  const p = state.deleteProgress;
+  box.classList.toggle('hidden', !p.active);
+  if (!p.active) return;
+  bar.style.width = `${p.percent}%`;
+  text.textContent = `${p.percent}% · ${toMB(p.deletedBytes)} / ${toMB(p.totalBytes)} · ${p.deletedItems}/${p.totalItems} files`;
+}
+
 function renderGrid() {
   const list = currentList();
   const grid = $('grid');
@@ -554,6 +566,7 @@ function renderGrid() {
 
   renderStorage();
   renderUploadProgress();
+  renderDeleteProgress();
   const readonly = state.section === 'shared' || state.section === 'trash' || state.section === 'archive';
   $('uploadFileBtn').disabled = readonly;
   $('uploadFolderBtn').disabled = readonly;
@@ -724,18 +737,45 @@ async function toggleTeamSpaceSelected() {
   toast(shouldAdd ? 'Added to Team Space.' : 'Removed from Team Space.');
 }
 
+async function deleteWithProgress(ids) {
+  const validIds = ids.filter(Boolean);
+  if (!validIds.length) return 0;
+  const byId = new Map(state.files.map((item) => [item.id, item]));
+  const totalBytes = validIds.reduce((sum, id) => sum + (byId.get(id)?.size || 0), 0);
+  state.deleteProgress = { active: true, percent: 0, deletedBytes: 0, totalBytes, deletedItems: 0, totalItems: validIds.length };
+  renderDeleteProgress();
+
+  let deleted = 0;
+  for (const id of validIds) {
+    await api('/files/delete-batch', { method: 'DELETE', body: JSON.stringify({ ids: [id] }) });
+    deleted += 1;
+    state.deleteProgress.deletedItems = deleted;
+    state.deleteProgress.deletedBytes += byId.get(id)?.size || 0;
+    state.deleteProgress.percent = Math.round((deleted / validIds.length) * 100);
+    renderDeleteProgress();
+  }
+
+  await loadDrive();
+  state.deleteProgress.percent = 100;
+  renderDeleteProgress();
+  setTimeout(() => {
+    state.deleteProgress.active = false;
+    renderDeleteProgress();
+  }, 1200);
+  return deleted;
+}
+
 async function deleteForever() {
   if (!state.selectedIds.size || state.section !== 'trash') return;
-  await api('/files/delete-batch', { method: 'DELETE', body: JSON.stringify({ ids: [...state.selectedIds] }) });
-  await loadDrive();
-  toast('Deleted selected items permanently.');
+  const deleted = await deleteWithProgress([...state.selectedIds]);
+  toast(deleted ? 'Deleted selected items permanently.' : 'Nothing deleted.');
 }
 
 async function clearBin() {
   if (state.section !== 'trash') return;
-  await api('/files/trash/clear', { method: 'DELETE' });
-  await loadDrive();
-  toast('Trash cleared.');
+  const ids = state.files.filter((item) => !!item.trashedAt).map((item) => item.id);
+  const deleted = await deleteWithProgress(ids);
+  toast(deleted ? 'Trash cleared.' : 'Trash is already empty.');
 }
 
 function downloadSelected() {

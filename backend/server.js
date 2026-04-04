@@ -171,8 +171,21 @@ app.get('/api/files/shared', auth, (req, res) => {
   res.json({ files: shared });
 });
 
+app.get('/api/files/team-space', auth, (req, res) => {
+  const visible = [];
+  for (const [owner, records] of Object.entries(db.filesByUser)) {
+    const ownerRecords = purgeExpired(owner, records);
+    ownerRecords.forEach((item) => {
+      if (!item.trashedAt && item.teamSpace) {
+        visible.push({ ...item, owner });
+      }
+    });
+  }
+  res.json({ files: visible });
+});
+
 app.post('/api/files', auth, (req, res) => {
-  const { name, type, size = 0, parentPath = '' } = req.body || {};
+  const { name, type, size = 0, parentPath = '', teamSpace = false } = req.body || {};
   if (!name || !type) return res.status(400).json({ message: 'name and type are required.' });
   const parsedSize = Number(size || 0);
 
@@ -190,7 +203,7 @@ app.post('/api/files', auth, (req, res) => {
     trashedAt: null,
     createdAt: new Date().toISOString(),
     starred: false,
-    teamSpace: false,
+    teamSpace: !!teamSpace,
     archived: false,
   };
   ensureUserFiles(req.userEmail).unshift(item);
@@ -217,7 +230,7 @@ app.post('/api/upload', auth, upload.single('file'), (req, res) => {
     trashedAt: null,
     createdAt: new Date().toISOString(),
     starred: false,
-    teamSpace: false,
+    teamSpace: req.body?.teamSpace === 'true' || req.body?.teamSpace === true,
     archived: false,
     mimeType: req.file.mimetype || 'application/octet-stream',
   };

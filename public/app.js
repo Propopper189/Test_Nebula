@@ -11,6 +11,7 @@ const state = {
   user: localStorage.getItem('nebula_user') || '',
   files: [],
   sharedFiles: [],
+  teamFiles: [],
   section: 'drive',
   currentFolder: '',
   selectedIds: new Set(),
@@ -192,6 +193,16 @@ function localApi(path, options = {}) {
     return { files: shared };
   }
 
+  if (path === '/files/team-space' && method === 'GET') {
+    const team = [];
+    users.forEach((user) => {
+      readJson(localKey.files(user.email), []).forEach((item) => {
+        if (!item.trashedAt && item.teamSpace) team.push({ ...item, owner: user.email });
+      });
+    });
+    return { files: team };
+  }
+
   if (path === '/files' && method === 'POST') {
     const used = files.filter((f) => !f.trashedAt).reduce((a, b) => a + (b.size || 0), 0);
     if (used + Number(body.size || 0) > LIMIT) throw new Error('Storage limit exceeded. Upload would exceed 10 GB.');
@@ -205,7 +216,7 @@ function localApi(path, options = {}) {
       trashedAt: null,
       createdAt: new Date().toISOString(),
       starred: false,
-      teamSpace: false,
+      teamSpace: !!body.teamSpace,
       archived: false,
     };
     files.unshift(item);
@@ -280,6 +291,7 @@ function localApi(path, options = {}) {
   if (path === '/upload' && method === 'POST' && body instanceof FormData) {
     const file = body.get('file');
     const parentPath = body.get('parentPath') || '';
+    const teamSpace = body.get('teamSpace') === 'true';
     if (!(file instanceof File)) throw new Error('file is required.');
     const used = files.filter((f) => !f.trashedAt).reduce((a, b) => a + (b.size || 0), 0);
     if (used + file.size > LIMIT) throw new Error('Storage limit exceeded. Upload would exceed 10 GB.');
@@ -293,7 +305,7 @@ function localApi(path, options = {}) {
       trashedAt: null,
       createdAt: new Date().toISOString(),
       starred: false,
-      teamSpace: false,
+      teamSpace,
       archived: false,
     };
     files.unshift(item);
@@ -343,6 +355,7 @@ async function signOut() {
   state.user = '';
   state.files = [];
   state.sharedFiles = [];
+  state.teamFiles = [];
   state.selectedIds = new Set();
   localStorage.removeItem('nebula_token');
   localStorage.removeItem('nebula_user');
@@ -390,9 +403,7 @@ function currentList() {
     const byId = new Map(allItems.map((item) => [item.id, item]));
     scoped = state.recents.map((id) => byId.get(id)).filter(Boolean);
   } else if (state.section === 'team') {
-    const ownTeam = state.files.filter((f) => !f.trashedAt && !f.archived && !!f.teamSpace);
-    const merged = [...ownTeam, ...state.sharedFiles.filter((f) => !f.trashedAt)];
-    scoped = merged.filter((item, idx, arr) => arr.findIndex((x) => x.id === item.id) === idx);
+    scoped = state.teamFiles.filter((f) => !f.trashedAt && !f.archived);
   } else if (state.section === 'starred') {
     scoped = source.filter((f) => !!f.starred);
   }
@@ -543,18 +554,19 @@ function renderGrid() {
 
   renderStorage();
   renderUploadProgress();
-  const readonly = state.section === 'shared' || state.section === 'trash' || state.section === 'team' || state.section === 'archive';
+  const readonly = state.section === 'shared' || state.section === 'trash' || state.section === 'archive';
   $('uploadFileBtn').disabled = readonly;
   $('uploadFolderBtn').disabled = readonly;
   $('newFolderBtn').disabled = readonly;
 }
 
 async function loadDrive() {
-  const [filesResp, sharedResp] = await Promise.all([api('/files'), api('/files/shared')]);
+  const [filesResp, sharedResp, teamResp] = await Promise.all([api('/files'), api('/files/shared'), api('/files/team-space')]);
   state.files = filesResp.files;
   state.sharedFiles = sharedResp.files;
+  state.teamFiles = teamResp.files;
   loadRecents();
-  const validIds = new Set([...state.files, ...state.sharedFiles].map((item) => item.id));
+  const validIds = new Set([...state.files, ...state.sharedFiles, ...state.teamFiles].map((item) => item.id));
   state.recents = state.recents.filter((id) => validIds.has(id));
   saveRecents();
   state.selectedIds = new Set();
@@ -567,7 +579,7 @@ async function loadDrive() {
   renderDetails();
 }
 
-function uploadSingleFileWithProgress(file, parentPath, onProgress) {
+function uploadSingleFileWithProgress(file, parentPath, onProgress, teamSpace = false) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', apiBase('/upload'));
@@ -590,6 +602,7 @@ function uploadSingleFileWithProgress(file, parentPath, onProgress) {
     const form = new FormData();
     form.append('file', file, file.name);
     form.append('parentPath', parentPath);
+    form.append('teamSpace', teamSpace ? 'true' : 'false');
     xhr.send(form);
   });
 }
@@ -608,7 +621,7 @@ async function uploadRecords(fileList, isFolder = false) {
       for (const segment of relDirs) {
         cursor = normalizePath(cursor ? `${cursor}/${segment}` : segment);
         if (!cursor || existingFolders.has(cursor)) continue;
-        await api('/files', { method: 'POST', body: JSON.stringify({ name: basename(cursor), type: 'folder', size: 0, parentPath: normalizePath(cursor.split('/').slice(0, -1).join('/')) }) });
+        await api('/files', { method: 'POST', body: JSON.stringify({ name: basename(cursor), type: 'folder', size: 0, parentPath: normalizePath(cursor.split('/').slice(0, -1).join('/')), teamSpace: state.section === 'team' }) });
         existingFolders.add(cursor);
       }
     }
@@ -632,7 +645,7 @@ async function uploadRecords(fileList, isFolder = false) {
     if (IS_FILE_MODE) {
       const created = await api('/files', {
         method: 'POST',
-        body: JSON.stringify({ name: file.name, type: 'file', size: file.size, parentPath }),
+        body: JSON.stringify({ name: file.name, type: 'file', size: file.size, parentPath, teamSpace: state.section === 'team' }),
       });
       localBlobMap.set(created.id, file);
       state.uploadProgress.uploadedBytes = alreadyUploaded + file.size;
@@ -641,7 +654,7 @@ async function uploadRecords(fileList, isFolder = false) {
         state.uploadProgress.uploadedBytes = alreadyUploaded + loadedBytes;
         state.uploadProgress.percent = totalBytes ? Math.min(100, Math.round((state.uploadProgress.uploadedBytes / totalBytes) * 100)) : 100;
         renderUploadProgress();
-      });
+      }, state.section === 'team');
       state.uploadProgress.uploadedBytes = alreadyUploaded + file.size;
     }
 
@@ -665,7 +678,7 @@ async function uploadRecords(fileList, isFolder = false) {
 async function createFolder() {
   const name = prompt('Folder name', 'New Folder');
   if (!name) return;
-  await api('/files', { method: 'POST', body: JSON.stringify({ name, type: 'folder', size: 0, parentPath: state.currentFolder }) });
+  await api('/files', { method: 'POST', body: JSON.stringify({ name, type: 'folder', size: 0, parentPath: state.currentFolder, teamSpace: state.section === 'team' }) });
   await loadDrive();
   toast('Folder created.');
 }

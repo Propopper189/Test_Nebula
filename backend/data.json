@@ -1,0 +1,11 @@
+{
+  "users": {
+    "aquib": {
+      "password": "jawaid"
+    }
+  },
+  "filesByUser": {
+    "aquib": []
+  },
+  "blobs": {}
+}
